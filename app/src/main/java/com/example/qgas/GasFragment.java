@@ -6,10 +6,10 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.location.Location;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,6 +27,8 @@ import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -36,18 +38,22 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class GasFragment extends Fragment {
 
     private TextView tvResults;
-    private EditText etStation;
+    private EditText etStation, etLat, etLong;
     private ImageView ivPreview;
     private File photoFile;
     private RecyclerView rvGasList;
     private GasAdapter adapter;
     private ArrayList<Gas> gasDataList = new ArrayList<>();
+
+    // GPS Client
+    private FusedLocationProviderClient fusedLocationClient;
 
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -61,32 +67,74 @@ public class GasFragment extends Fragment {
                 }
             });
 
-    private final ActivityResultLauncher<String> permissionLauncher = registerForActivityResult(
-            new ActivityResultContracts.RequestPermission(),
-            isGranted -> { if (isGranted) startCamera(); });
+    // Multi-Permission Launcher for Camera and GPS
+    private final ActivityResultLauncher<String[]> permissionLauncher = registerForActivityResult(
+            new ActivityResultContracts.RequestMultiplePermissions(),
+            result -> {
+                Boolean cameraGranted = result.getOrDefault(Manifest.permission.CAMERA, false);
+                Boolean locationGranted = result.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false);
+                if (cameraGranted && locationGranted) {
+                    startCameraAndGps();
+                } else {
+                    Toast.makeText(getContext(), "Permissions required for full features", Toast.LENGTH_SHORT).show();
+                }
+            });
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_gas, container, false);
 
         etStation = view.findViewById(R.id.et_station);
+        etLat = view.findViewById(R.id.et_lat);
+        etLong = view.findViewById(R.id.et_long);
         tvResults = view.findViewById(R.id.tv_results);
         ivPreview = view.findViewById(R.id.iv_preview);
         Button btnCapture = view.findViewById(R.id.btn_capture);
         rvGasList = view.findViewById(R.id.rv_gas_list);
+
         rvGasList.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(getContext()));
         adapter = new GasAdapter(gasDataList);
         rvGasList.setAdapter(adapter);
 
-        btnCapture.setOnClickListener(v -> {
-            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                startCamera();
-            } else {
-                permissionLauncher.launch(Manifest.permission.CAMERA);
-            }
-        });
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity());
+
+        btnCapture.setOnClickListener(v -> checkPermissionsAndStart());
 
         return view;
+    }
+
+    private void checkPermissionsAndStart() {
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startCameraAndGps();
+        } else {
+            permissionLauncher.launch(new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+            });
+        }
+    }
+
+    private void startCameraAndGps() {
+        fetchGpsCoordinates();
+        startCamera();
+    }
+
+    private void fetchGpsCoordinates() {
+        try {
+            fusedLocationClient.getLastLocation().addOnSuccessListener(requireActivity(), location -> {
+                if (location != null) {
+                    etLat.setText(String.valueOf(location.getLatitude()));
+                    etLong.setText(String.valueOf(location.getLongitude()));
+                } else {
+                    etLat.setText("0.0");
+                    etLong.setText("0.0");
+                    Toast.makeText(getContext(), "Ensure GPS is enabled", Toast.LENGTH_SHORT).show();
+                }
+            });
+        } catch (SecurityException e) {
+            e.printStackTrace();
+        }
     }
 
     private void startCamera() {
@@ -167,34 +215,16 @@ public class GasFragment extends Fragment {
             }
         }
 
-        if (flag) {
-            gasList.add(new Gas(fname, fprice));
-        }
+        if (flag) gasList.add(new Gas(fname, fprice));
 
-        // --- DISPLAY LOGIC ---
         etStation.setText(stationName);
         if (gasList.isEmpty()) {
             tvResults.setText("No fuel data detected.");
-            Toast.makeText(getContext(), "No fuel data detected.", Toast.LENGTH_SHORT).show();
         } else {
             tvResults.setText("");
             gasDataList.clear();
             gasDataList.addAll(gasList);
             adapter.notifyDataSetChanged();
         }
-
-//        if (gasList.isEmpty()) {
-//            tvResults.setText("No fuel data detected.");
-//        } else {
-//            StringBuilder display = new StringBuilder();
-//            for (Gas gas : gasList) {
-//                display.append("⛽ ")
-//                        .append(gas.getName())
-//                        .append(": ₱")
-//                        .append(String.format("%.2f", gas.getPrice()))
-//                        .append("\n");
-//            }
-//            tvResults.setText(display.toString());
-//        }
     }
 }
