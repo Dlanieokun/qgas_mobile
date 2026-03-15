@@ -41,6 +41,8 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
 
 public class GasFragment extends Fragment {
 
@@ -121,19 +123,28 @@ public class GasFragment extends Fragment {
     }
 
     private void fetchGpsCoordinates() {
-        try {
-            fusedLocationClient.getLastLocation().addOnSuccessListener(requireActivity(), location -> {
-                if (location != null) {
-                    etLat.setText(String.valueOf(location.getLatitude()));
-                    etLong.setText(String.valueOf(location.getLongitude()));
-                } else {
-                    etLat.setText("0.0");
-                    etLong.setText("0.0");
-                    Toast.makeText(getContext(), "Ensure GPS is enabled", Toast.LENGTH_SHORT).show();
-                }
-            });
-        } catch (SecurityException e) {
-            e.printStackTrace();
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED) {
+
+            // CancellationTokenSource is used to handle potential request timeouts
+            CancellationTokenSource cts = new CancellationTokenSource();
+
+            // getCurrentLocation ensures a fresh fix instead of a cached "last known" location
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.getToken())
+                    .addOnSuccessListener(requireActivity(), location -> {
+                        if (location != null) {
+                            etLat.setText(String.valueOf(location.getLatitude()));
+                            etLong.setText(String.valueOf(location.getLongitude()));
+                        } else {
+                            // Fallback if GPS is disabled or signal is lost
+                            etLat.setText("0.0");
+                            etLong.setText("0.0");
+                            Toast.makeText(getContext(), "Unable to get exact location. Check GPS settings.", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .addOnFailureListener(e -> {
+                        Toast.makeText(getContext(), "Location error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    });
         }
     }
 
