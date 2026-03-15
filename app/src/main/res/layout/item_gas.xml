@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="12dp"
+    android:background="@android:color/white"
+    android:layout_marginBottom="2dp">
+
+    <EditText
+        android:id="@+id/et_item_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:hint="Fuel Name"
+        android:textSize="18sp"
+        android:inputType="textCapWords"
+        android:textColor="#212121"
+        android:background="@android:color/transparent" />
+
+    <EditText
+        android:id="@+id/et_item_price"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:hint="₱0.00"
+        android:minWidth="100dp"
+        android:gravity="end"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:inputType="numberDecimal"
+        android:textColor="#2196F3"
+        android:background="@android:color/transparent" />
+</LinearLayout>
