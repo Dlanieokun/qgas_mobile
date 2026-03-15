@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.location.Location;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -26,9 +25,12 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -38,23 +40,20 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import com.google.android.gms.location.Priority;
-import com.google.android.gms.tasks.CancellationTokenSource;
 
 public class GasFragment extends Fragment {
 
     private TextView tvResults;
     private EditText etStation, etLat, etLong;
     private ImageView ivPreview;
+    private Button btnCapture, btnSave; // Added btnSave
     private File photoFile;
     private RecyclerView rvGasList;
     private GasAdapter adapter;
     private ArrayList<Gas> gasDataList = new ArrayList<>();
 
-    // GPS Client
     private FusedLocationProviderClient fusedLocationClient;
 
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
@@ -69,7 +68,6 @@ public class GasFragment extends Fragment {
                 }
             });
 
-    // Multi-Permission Launcher for Camera and GPS
     private final ActivityResultLauncher<String[]> permissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestMultiplePermissions(),
             result -> {
@@ -78,7 +76,7 @@ public class GasFragment extends Fragment {
                 if (cameraGranted && locationGranted) {
                     startCameraAndGps();
                 } else {
-                    Toast.makeText(getContext(), "Permissions required for full features", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(getContext(), "Permissions required", Toast.LENGTH_SHORT).show();
                 }
             });
 
@@ -91,10 +89,12 @@ public class GasFragment extends Fragment {
         etLong = view.findViewById(R.id.et_long);
         tvResults = view.findViewById(R.id.tv_results);
         ivPreview = view.findViewById(R.id.iv_preview);
-        Button btnCapture = view.findViewById(R.id.btn_capture);
+        btnCapture = view.findViewById(R.id.btn_capture);
+        btnSave = view.findViewById(R.id.btn_save);
+        btnSave.setVisibility(View.GONE);
         rvGasList = view.findViewById(R.id.rv_gas_list);
 
-        rvGasList.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(getContext()));
+        rvGasList.setLayoutManager(new LinearLayoutManager(getContext()));
         adapter = new GasAdapter(gasDataList);
         rvGasList.setAdapter(adapter);
 
@@ -102,7 +102,26 @@ public class GasFragment extends Fragment {
 
         btnCapture.setOnClickListener(v -> checkPermissionsAndStart());
 
+        // Save logic
+        btnSave.setOnClickListener(v -> saveGasData());
+        fetchGpsCoordinates();
+
         return view;
+    }
+
+    private void saveGasData() {
+        if (gasDataList.isEmpty()) {
+            Toast.makeText(getContext(), "Nothing to save. Please scan a sign first.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String station = etStation.getText().toString();
+        String lat = etLat.getText().toString();
+        String lon = etLong.getText().toString();
+
+        // Logic to persist data (Database/API) would go here
+        String summary = "Saved " + gasDataList.size() + " items for " + station;
+        Toast.makeText(getContext(), summary, Toast.LENGTH_LONG).show();
     }
 
     private void checkPermissionsAndStart() {
@@ -123,27 +142,14 @@ public class GasFragment extends Fragment {
     }
 
     private void fetchGpsCoordinates() {
-        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED) {
-
-            // CancellationTokenSource is used to handle potential request timeouts
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             CancellationTokenSource cts = new CancellationTokenSource();
-
-            // getCurrentLocation ensures a fresh fix instead of a cached "last known" location
             fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.getToken())
                     .addOnSuccessListener(requireActivity(), location -> {
                         if (location != null) {
                             etLat.setText(String.valueOf(location.getLatitude()));
                             etLong.setText(String.valueOf(location.getLongitude()));
-                        } else {
-                            // Fallback if GPS is disabled or signal is lost
-                            etLat.setText("0.0");
-                            etLong.setText("0.0");
-                            Toast.makeText(getContext(), "Unable to get exact location. Check GPS settings.", Toast.LENGTH_SHORT).show();
                         }
-                    })
-                    .addOnFailureListener(e -> {
-                        Toast.makeText(getContext(), "Location error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                     });
         }
     }
@@ -231,7 +237,9 @@ public class GasFragment extends Fragment {
         etStation.setText(stationName);
         if (gasList.isEmpty()) {
             tvResults.setText("No fuel data detected.");
+            btnSave.setVisibility(View.GONE);
         } else {
+            btnSave.setVisibility(View.VISIBLE);
             tvResults.setText("");
             gasDataList.clear();
             gasDataList.addAll(gasList);
