@@ -18,7 +18,7 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/nav_wrapper"
         android:layout_width="match_parent"
-        android:layout_height="140dp"
+        android:layout_height="100dp"
         android:clipChildren="false"
         app:layout_constraintBottom_toBottomOf="parent">
 
@@ -45,42 +45,52 @@
             app:layout_constraintEnd_toEndOf="@id/green_base" />
 
         <LinearLayout
-            android:id="@+id/nav_item_home"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical"
-            app:layout_constraintBottom_toBottomOf="@id/blue_bar"
+            android:layout_height="0dp"
+            android:orientation="horizontal"
+            android:weightSum="3"
+            android:clipChildren="false"
             app:layout_constraintTop_toTopOf="@id/blue_bar"
+            app:layout_constraintBottom_toBottomOf="@id/blue_bar"
             app:layout_constraintStart_toStartOf="@id/blue_bar"
-            app:layout_constraintEnd_toStartOf="@+id/nav_item_center_gas">
-            <ImageView android:layout_width="45dp" android:layout_height="45dp" android:src="@drawable/ic_home" />
-        </LinearLayout>
+            app:layout_constraintEnd_toEndOf="@id/blue_bar">
 
-        <LinearLayout
-            android:id="@+id/nav_item_center_gas"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:elevation="10dp"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent">
-            <ImageView android:layout_width="110dp" android:layout_height="110dp" android:src="@drawable/ic_gas" />
-        </LinearLayout>
+            <LinearLayout
+                android:id="@+id/nav_item_home"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center">
+                <ImageView
+                    android:layout_width="45dp"
+                    android:layout_height="45dp"
+                    android:src="@drawable/ic_home" />
+            </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/nav_item_settings"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical"
-            app:layout_constraintBottom_toBottomOf="@id/blue_bar"
-            app:layout_constraintTop_toTopOf="@id/blue_bar"
-            app:layout_constraintEnd_toEndOf="@id/blue_bar"
-            app:layout_constraintStart_toEndOf="@id/nav_item_center_gas">
-            <ImageView android:layout_width="45dp" android:layout_height="45dp" android:src="@drawable/ic_settings" />
-        </LinearLayout>
+            <LinearLayout
+                android:id="@+id/nav_item_center_gas"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center">
+                <ImageView
+                    android:layout_width="45dp"
+                    android:layout_height="45dp"
+                    android:src="@drawable/ic_gas" />
+            </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/nav_item_settings"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center">
+                <ImageView
+                    android:layout_width="45dp"
+                    android:layout_height="45dp"
+                    android:src="@drawable/ic_settings" />
+            </LinearLayout>
+
+        </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -39,12 +39,18 @@ public class MainActivity extends AppCompatActivity {
         btnGas = findViewById(R.id.nav_item_center_gas);
         btnSettings = findViewById(R.id.nav_item_settings);
 
-        // --- DEFAULT STATE: HOME ACTIVE ---
+        // --- INITIAL STATE: Set all to 60% opacity ---
+        btnHome.setAlpha(0.6f);
+        btnGas.setAlpha(0.6f);
+        btnSettings.setAlpha(0.6f);
+
+        // --- DEFAULT SELECTION ---
         if (savedInstanceState == null) {
             loadFragment(new HomeFragment());
-            setActive(btnHome);
+            setActive(btnHome); // This will animate Home to 100% and scale up
         }
 
+        // Click Listeners
         btnHome.setOnClickListener(v -> { loadFragment(new HomeFragment()); setActive(btnHome); });
         btnGas.setOnClickListener(v -> { loadFragment(new GasFragment()); setActive(btnGas); });
         btnSettings.setOnClickListener(v -> { loadFragment(new SettingsFragment()); setActive(btnSettings); });
@@ -60,15 +66,24 @@ public class MainActivity extends AppCompatActivity {
 
     private void setActive(View newActive) {
         if (activeView == newActive) return;
+
+        // Reset previous active view to 60% opacity and normal size
         if (activeView != null) {
-            animateScale(activeView, 1.0f, 0.6f); // Inactive: normal size, 60% opacity
+            animateScale(activeView, 1.0f, 0.6f);
         }
-        animateScale(newActive, 1.3f, 1.0f); // Active: 30% larger, 100% opacity
+
+        // Set new active view to 100% opacity and 1.3x size
+        animateScale(newActive, 1.7f, 1.0f);
         activeView = newActive;
     }
 
     private void animateScale(View view, float scale, float alpha) {
-        view.animate().scaleX(scale).scaleY(scale).alpha(alpha).setDuration(250).start();
+        view.animate()
+                .scaleX(scale)
+                .scaleY(scale)
+                .alpha(alpha)
+                .setDuration(250)
+                .start();
     }
 
     private void hideSystemUI() {
