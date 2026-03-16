@@ -2,11 +2,15 @@ package com.example.qgas;
 
 import android.os.Build;
 import android.os.Bundle;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import androidx.activity.EdgeToEdge;
+import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -25,10 +29,16 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
-        // Enable Fullscreen / Hide System Bars
         hideSystemUI();
 
-        // Adjust bottom padding for system gestures
+        // New: Handle Back Press to show modal
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                showExitDialog();
+            }
+        });
+
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             int bottom = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
             v.setPadding(0, 0, 0, bottom);
@@ -39,21 +49,40 @@ public class MainActivity extends AppCompatActivity {
         btnGas = findViewById(R.id.nav_item_center_gas);
         btnSettings = findViewById(R.id.nav_item_settings);
 
-        // --- INITIAL STATE: Set all to 60% opacity ---
         btnHome.setAlpha(0.6f);
         btnGas.setAlpha(0.6f);
         btnSettings.setAlpha(0.6f);
 
-        // --- DEFAULT SELECTION ---
         if (savedInstanceState == null) {
             loadFragment(new HomeFragment());
-            setActive(btnHome); // This will animate Home to 100% and scale up
+            setActive(btnHome);
         }
 
-        // Click Listeners
         btnHome.setOnClickListener(v -> { loadFragment(new HomeFragment()); setActive(btnHome); });
         btnGas.setOnClickListener(v -> { loadFragment(new GasFragment()); setActive(btnGas); });
         btnSettings.setOnClickListener(v -> { loadFragment(new SettingsFragment()); setActive(btnSettings); });
+    }
+
+    private void showExitDialog() {
+        // Fix: Use LayoutInflater to get the custom view
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_exit, null);
+
+        // Fix: Removed the specific R.style reference that caused the error
+        // Standard AlertDialog.Builder will use your app's default theme
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .create();
+
+        Button btnCancel = dialogView.findViewById(R.id.btn_cancel);
+        Button btnExit = dialogView.findViewById(R.id.btn_exit);
+
+        btnCancel.setOnClickListener(v -> dialog.dismiss());
+        btnExit.setOnClickListener(v -> finish());
+
+        dialog.show();
+
+        // Re-hide UI if the dialog caused system bars to appear
+        dialog.setOnDismissListener(d -> hideSystemUI());
     }
 
     private void loadFragment(Fragment fragment) {
@@ -66,13 +95,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void setActive(View newActive) {
         if (activeView == newActive) return;
-
-        // Reset previous active view to 60% opacity and normal size
         if (activeView != null) {
             animateScale(activeView, 1.0f, 0.6f);
         }
-
-        // Set new active view to 100% opacity and 1.3x size
         animateScale(newActive, 1.7f, 1.0f);
         activeView = newActive;
     }
