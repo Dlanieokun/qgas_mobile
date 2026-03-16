@@ -37,6 +37,9 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -111,17 +114,60 @@ public class GasFragment extends Fragment {
 
     private void saveGasData() {
         if (gasDataList.isEmpty()) {
-            Toast.makeText(getContext(), "Nothing to save. Please scan a sign first.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), "Nothing to scan.", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        String station = etStation.getText().toString();
-        String lat = etLat.getText().toString();
-        String lon = etLong.getText().toString();
+        try {
+            // 1. Prepare Data
+            String station = etStation.getText().toString();
+            double lat = Double.parseDouble(etLat.getText().toString().isEmpty() ? "0" : etLat.getText().toString());
+            double lon = Double.parseDouble(etLong.getText().toString().isEmpty() ? "0" : etLong.getText().toString());
+            String currentTime = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
+            String imagePath = (photoFile != null) ? photoFile.getAbsolutePath() : "";
 
-        // Logic to persist data (Database/API) would go here
-        String summary = "Saved " + gasDataList.size() + " items for " + station;
-        Toast.makeText(getContext(), summary, Toast.LENGTH_LONG).show();
+            // 2. Convert current scan to JSON
+            JSONObject scanJson = new JSONObject();
+            scanJson.put("station", station);
+            scanJson.put("latitude", lat);
+            scanJson.put("longitude", lon);
+            scanJson.put("timestamp", currentTime);
+            scanJson.put("imagePath", imagePath);
+
+            JSONArray gasArray = new JSONArray();
+            for (Gas g : gasDataList) {
+                JSONObject item = new JSONObject();
+                item.put("name", g.getName());
+                item.put("price", g.getPrice());
+                gasArray.put(item);
+            }
+            scanJson.put("prices", gasArray);
+
+            // 3. Save to Internal "Queue" (SharedPreferences)
+            android.content.SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", android.content.Context.MODE_PRIVATE);
+            String existingQueue = prefs.getString("queue_data", "[]");
+            JSONArray queue = new JSONArray(existingQueue);
+            queue.put(scanJson); // Add to the end of the queue
+
+            prefs.edit().putString("queue_data", queue.toString()).apply();
+
+            Toast.makeText(getContext(), "Saved to Queue! (" + queue.length() + " items pending)", Toast.LENGTH_LONG).show();
+
+            // Optional: Reset UI after save
+            resetUI();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(getContext(), "Error saving data", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void resetUI() {
+        gasDataList.clear();
+        adapter.notifyDataSetChanged();
+        etStation.setText("");
+        ivPreview.setImageResource(0);
+        btnSave.setVisibility(View.GONE);
     }
 
     private void checkPermissionsAndStart() {

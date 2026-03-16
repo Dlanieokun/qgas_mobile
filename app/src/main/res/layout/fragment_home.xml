@@ -1,13 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF">
+    android:orientation="vertical"
+    android:background="#F5F5F5">
+
     <TextView
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:text="Home Screen"
-        android:textSize="24sp"
-        android:textStyle="bold" />
-</FrameLayout>
+        android:padding="16dp"
+        android:text="Pending Scans"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="#212121" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_home_queue"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:padding="8dp" />
+</LinearLayout>
