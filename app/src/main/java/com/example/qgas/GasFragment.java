@@ -241,7 +241,11 @@ public class GasFragment extends Fragment {
             if (lowerLine.contains("reg") || lowerLine.contains("unl") ||
                     lowerLine.contains("pre") || lowerLine.contains("die") ||
                     lowerLine.contains("plus") || lowerLine.contains("plat") ||
-                    lowerLine.contains("sil") || lowerLine.contains("gaso")) {
+                    lowerLine.contains("sil") || lowerLine.contains("gaso") ||
+                    lowerLine.contains("xcs") || lowerLine.contains("blaz") ||
+                    lowerLine.contains("xtra") || lowerLine.contains("ext") ||
+                    lowerLine.contains("pul") || lowerLine.contains("uni") ||
+                    lowerLine.contains("pow") || lowerLine.contains("tur")) {
 
                 temp.add(line);
             } else {
