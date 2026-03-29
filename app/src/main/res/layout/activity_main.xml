@@ -48,7 +48,7 @@
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:orientation="horizontal"
-            android:weightSum="3"
+            android:weightSum="4"
             android:clipChildren="false"
             app:layout_constraintTop_toTopOf="@id/blue_bar"
             app:layout_constraintBottom_toBottomOf="@id/blue_bar"
@@ -77,6 +77,18 @@
                     android:layout_width="45dp"
                     android:layout_height="45dp"
                     android:src="@drawable/ic_gas" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/nav_item_map"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center">
+                <ImageView
+                    android:layout_width="45dp"
+                    android:layout_height="45dp"
+                    android:src="@drawable/ic_map" />
             </LinearLayout>
 
             <LinearLayout

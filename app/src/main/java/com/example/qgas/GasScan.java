@@ -7,15 +7,17 @@ public class GasScan {
     public double latitude;
     public double longitude;
     public String dateTime;
-    public String imagePath;
+    public String gasSignPath;
+    public String stationPhotoPath;
     public ArrayList<Gas> gasList;
 
-    public GasScan(String station, double lat, double lon, String dateTime, String imagePath, ArrayList<Gas> gasList) {
+    public GasScan(String station, double lat, double lon, String dateTime, String gasSignPath, String stationPhotoPath, ArrayList<Gas> gasList) {
         this.station = station;
         this.latitude = lat;
         this.longitude = lon;
         this.dateTime = dateTime;
-        this.imagePath = imagePath;
+        this.gasSignPath = gasSignPath;
+        this.stationPhotoPath = stationPhotoPath;
         this.gasList = gasList;
     }
 }

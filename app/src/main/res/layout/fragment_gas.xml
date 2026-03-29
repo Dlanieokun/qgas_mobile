@@ -78,14 +78,43 @@
             android:layout_marginTop="8dp"
             android:nestedScrollingEnabled="false" />
 
+        <Button
+            android:id="@+id/btn_add_item"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:text="+ Add Item"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:backgroundTint="#607D8B" />
+
         <TextView
             android:id="@+id/tv_results"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:lineSpacingExtra="6dp"
-            android:text="Prices will appear here."
-            android:textColor="#424242"
-            android:textSize="18sp" />
+            android:layout_marginTop="16dp"
+            android:text="Results will appear here" />
+
+        <Button
+            android:id="@+id/btn_capture_station"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginTop="12dp"
+            android:backgroundTint="#9C27B0"
+            android:text="Step 2: Take Photo of Station"
+            android:textColor="#FFFFFF"
+            android:textAllCaps="false"
+            android:textSize="18sp"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/iv_station_photo"
+            android:layout_width="match_parent"
+            android:layout_height="300dp"
+            android:layout_marginTop="12dp"
+            android:background="#E0E0E0"
+            android:scaleType="centerInside"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/btn_save"

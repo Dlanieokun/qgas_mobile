@@ -20,7 +20,7 @@ import androidx.fragment.app.FragmentTransaction;
 
 public class MainActivity extends AppCompatActivity {
 
-    private LinearLayout btnHome, btnGas, btnSettings;
+    private LinearLayout btnHome, btnGas, btnMap, btnSettings;
     private View activeView = null;
 
     @Override
@@ -47,10 +47,12 @@ public class MainActivity extends AppCompatActivity {
 
         btnHome = findViewById(R.id.nav_item_home);
         btnGas = findViewById(R.id.nav_item_center_gas);
+        btnMap = findViewById(R.id.nav_item_map);
         btnSettings = findViewById(R.id.nav_item_settings);
 
         btnHome.setAlpha(0.6f);
         btnGas.setAlpha(0.6f);
+        btnMap.setAlpha(0.6f);
         btnSettings.setAlpha(0.6f);
 
         if (savedInstanceState == null) {
@@ -60,6 +62,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnHome.setOnClickListener(v -> { loadFragment(new HomeFragment()); setActive(btnHome); });
         btnGas.setOnClickListener(v -> { loadFragment(new GasFragment()); setActive(btnGas); });
+        btnMap.setOnClickListener(v -> { loadFragment(new MapFragment()); setActive(btnMap); });
         btnSettings.setOnClickListener(v -> { loadFragment(new SettingsFragment()); setActive(btnSettings); });
     }
 

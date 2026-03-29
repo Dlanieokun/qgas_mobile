@@ -93,11 +93,28 @@ public class HomeFragment extends Fragment {
                         .addFormDataPart("date_captured", scan.getString("timestamp"))
                         .addFormDataPart("fuels", scan.getJSONArray("prices").toString());
 
-                if (scan.has("imagePath")) {
-                    File file = new File(scan.getString("imagePath"));
-                    if (file.exists()) {
-                        builder.addFormDataPart("photo", file.getName(),
-                                RequestBody.create(file, MediaType.parse("image/png")));
+                if (scan.has("gasImagePath")) {
+                    String path = scan.getString("gasImagePath");
+                    if (!path.isEmpty()) {
+                        File file = new File(path);
+                        if (file.exists()) {
+                            builder.addFormDataPart("photo", file.getName(),
+                                    RequestBody.create(file, MediaType.parse("image/jpeg")));
+                        }
+                    }
+                }
+
+                if (scan.has("stationImagePath")) { // Matches GasFragment key
+                    String path = scan.getString("stationImagePath");
+                    if (!path.isEmpty()) {
+                        File file = new File(path);
+                        if (file.exists()) {
+                            Log.d("FileExists", "File exists: " + file.getAbsolutePath());
+
+                            // Adding the station_photo part for the API
+                            builder.addFormDataPart("station_photo", file.getName(),
+                                    RequestBody.create(file, MediaType.parse("image/jpeg")));
+                        }
                     }
                 }
 
