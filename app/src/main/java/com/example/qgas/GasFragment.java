@@ -163,6 +163,8 @@ public class GasFragment extends Fragment {
         }
 
         try {
+            boolean required = false;
+            String text_price = "";
             String station = etStation.getText().toString();
             double lat = Double.parseDouble(etLat.getText().toString().isEmpty() ? "0" : etLat.getText().toString());
             double lon = Double.parseDouble(etLong.getText().toString().isEmpty() ? "0" : etLong.getText().toString());
@@ -185,17 +187,32 @@ public class GasFragment extends Fragment {
                 item.put("name", g.getName());
                 item.put("price", g.getPrice());
                 gasArray.put(item);
+                if (g.getPrice() > 200){
+                    required = true;
+                    text_price = "high";
+                }
+                if (g.getPrice() < 50) {
+                    required = true;
+                    text_price = "low";
+                }
             }
-            scanJson.put("prices", gasArray);
 
-            android.content.SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", android.content.Context.MODE_PRIVATE);
-            String existingQueue = prefs.getString("queue_data", "[]");
-            JSONArray queue = new JSONArray(existingQueue);
-            queue.put(scanJson);
+            if (required){
+                Toast.makeText(getContext(), "Gas prices are too " + text_price, Toast.LENGTH_LONG).show();
+            }else if (lat == 0 || lon == 0) {
+                Toast.makeText(getContext(), "the location is not yet set", Toast.LENGTH_LONG).show();
+            } else {
+                scanJson.put("prices", gasArray);
 
-            prefs.edit().putString("queue_data", queue.toString()).apply();
-            Toast.makeText(getContext(), "Saved to Queue!", Toast.LENGTH_LONG).show();
-            resetUI();
+                android.content.SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", android.content.Context.MODE_PRIVATE);
+                String existingQueue = prefs.getString("queue_data", "[]");
+                JSONArray queue = new JSONArray(existingQueue);
+                queue.put(scanJson);
+
+                prefs.edit().putString("queue_data", queue.toString()).apply();
+                Toast.makeText(getContext(), "Saved to Queue!", Toast.LENGTH_LONG).show();
+                resetUI();
+            }
 
         } catch (Exception e) {
             Toast.makeText(getContext(), "Error saving data", Toast.LENGTH_SHORT).show();
@@ -361,6 +378,7 @@ public class GasFragment extends Fragment {
 
         List<Gas> noDiesel = gasList.stream()
                 .filter(gas -> !gas.getName().toLowerCase().contains("diesel"))
+                .sorted(Comparator.comparing(Gas::getPrice).reversed())
                 .collect(Collectors.toList());
 
         noDiesel.forEach(gas -> {
@@ -370,14 +388,38 @@ public class GasFragment extends Fragment {
             gas.setName(newName);
         });
 
+        boolean hasPremium = noDiesel.stream()
+                .anyMatch(gas -> "Gasoline - Premium".equals(gas.getName()));
+
+        if (noDiesel.size() == 1) {
+            noDiesel.get(0).setName("Gasoline - Standard");
+        } else if (noDiesel.size() > 1 && !hasPremium) {
+            // Highest price (index 0) gets Premium
+            noDiesel.get(0).setName("Gasoline - Premium");
+
+            // All others get Standard
+            noDiesel.stream()
+                    .skip(1)
+                    .forEach(gas -> gas.setName("Gasoline - Standard"));
+        }
+
         List<Gas> allGasProcessed = new ArrayList<>();
         allGasProcessed.addAll(dieselOnly);
         allGasProcessed.addAll(noDiesel);
+
+        allGasProcessed.forEach(gas -> {
+            if (gas.getPrice() > 900 ) {
+                float exact_price = gas.getPrice() / 100;
+                gas.setPrice(exact_price);
+            }
+        });
 
         if (allGasProcessed.isEmpty()) {
             tvResults.setText("No fuel data detected.");
             btnSave.setVisibility(View.GONE);
             btnCaptureStation.setVisibility(View.GONE);
+            Toast.makeText(getContext(), "No fuel data detected.", Toast.LENGTH_SHORT).show();
+            resetUI();
         } else {
             tvResults.setText("Success! Now take a photo of the station storefront.");
             btnCaptureStation.setVisibility(View.VISIBLE);

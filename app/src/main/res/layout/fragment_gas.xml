@@ -15,7 +15,7 @@
             android:layout_width="match_parent"
             android:layout_height="60dp"
             android:backgroundTint="#2196F3"
-            android:text="Take Picture of Gas Sign"
+            android:text="Take Picture of Gas Prices"
             android:textColor="#FFFFFF"
             android:textAllCaps="false"
             android:textSize="18sp" />
@@ -85,6 +85,7 @@
             android:layout_gravity="end"
             android:text="+ Add Item"
             android:textAllCaps="false"
+            android:visibility="gone"
             android:textSize="12sp"
             android:backgroundTint="#607D8B" />
 

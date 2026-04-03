@@ -7,6 +7,17 @@
     android:background="@android:color/white"
     android:layout_marginBottom="2dp">
 
+<!--    <EditText-->
+<!--        android:id="@+id/et_item_name"-->
+<!--        android:layout_width="0dp"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_weight="1"-->
+<!--        android:hint="Fuel Name"-->
+<!--        android:textSize="18sp"-->
+<!--        android:inputType="textCapWords"-->
+<!--        android:textColor="#212121"-->
+<!--        android:background="@android:color/transparent" />-->
+
     <EditText
         android:id="@+id/et_item_name"
         android:layout_width="0dp"
@@ -14,9 +25,24 @@
         android:layout_weight="1"
         android:hint="Fuel Name"
         android:textSize="18sp"
-        android:inputType="textCapWords"
+        android:inputType="none"
+        android:focusable="false"
+        android:cursorVisible="false"
         android:textColor="#212121"
         android:background="@android:color/transparent" />
+
+<!--    <EditText-->
+<!--        android:id="@+id/et_item_price"-->
+<!--        android:layout_width="wrap_content"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:hint="₱0.00"-->
+<!--        android:minWidth="100dp"-->
+<!--        android:gravity="end"-->
+<!--        android:textSize="18sp"-->
+<!--        android:textStyle="bold"-->
+<!--        android:inputType="numberDecimal"-->
+<!--        android:textColor="#2196F3"-->
+<!--        android:background="@android:color/transparent" />-->
 
     <EditText
         android:id="@+id/et_item_price"
@@ -27,7 +53,9 @@
         android:gravity="end"
         android:textSize="18sp"
         android:textStyle="bold"
-        android:inputType="numberDecimal"
+        android:inputType="none"
+        android:focusable="false"
+        android:cursorVisible="false"
         android:textColor="#2196F3"
         android:background="@android:color/transparent" />
 </LinearLayout>

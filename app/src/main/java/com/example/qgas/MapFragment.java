@@ -13,8 +13,10 @@ import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -87,7 +89,6 @@ public class MapFragment extends Fragment {
         fetchNearbyStations(location.getLatitude(), location.getLongitude());
     }
 
-    // Helper to resize markers so they don't cover the whole map
     private Drawable getResizedIcon(int resourceId, int size) {
         Drawable drawable = ContextCompat.getDrawable(requireContext(), resourceId);
         if (drawable instanceof BitmapDrawable) {
@@ -112,11 +113,19 @@ public class MapFragment extends Fragment {
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
                 if (response.isSuccessful() && response.body() != null) {
                     try {
-                        String responseData = response.body().string(); // Read body ONCE
+                        String responseData = response.body().string();
                         JSONObject json = new JSONObject(responseData);
                         JSONArray stations = json.getJSONArray("data");
                         if (isAdded()) requireActivity().runOnUiThread(() -> displayMarkers(stations));
-                    } catch (Exception e) { e.printStackTrace(); }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    if (isAdded()) {
+                        requireActivity().runOnUiThread(() -> {
+                            Toast.makeText(requireContext(), "Stations: " + response.message(), Toast.LENGTH_SHORT).show();
+                        });
+                    }
                 }
             }
         });
@@ -125,17 +134,13 @@ public class MapFragment extends Fragment {
     private void displayMarkers(JSONArray stations) {
         if (getContext() == null) return;
 
-        // Set marker icon size to 100x100 pixels
         Drawable gasIcon = getResizedIcon(R.drawable.ic_gas_station, 100);
-
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
         String baseImgUrl = settings.getString("api_base_url", "").replace("/api", "");
 
         try {
             for (int i = 0; i < stations.length(); i++) {
                 JSONObject station = stations.getJSONObject(i);
-
-                // Get the specific photo path for THIS station
                 String photoPath = station.optString("station_photo", "");
 
                 StringBuilder priceBuilder = new StringBuilder();
@@ -154,9 +159,9 @@ public class MapFragment extends Fragment {
                 m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
 
                 if (gasIcon != null) m.setIcon(gasIcon);
-                baseImgUrl = baseImgUrl.replace("public", "storage");
-                // Build full URL: base + / + photoPath
-                final String finalPhotoUrl = baseImgUrl + (photoPath.startsWith("/") ? "" : "/") + photoPath;
+
+                String finalBaseUrl = baseImgUrl.replace("public", "storage");
+                final String finalPhotoUrl = finalBaseUrl + (photoPath.startsWith("/") ? "" : "/") + photoPath;
 
                 m.setInfoWindow(new MarkerInfoWindow(R.layout.custom_info_window, map) {
                     @Override
@@ -165,11 +170,16 @@ public class MapFragment extends Fragment {
                         TextView title = view.findViewById(R.id.bubble_title);
                         TextView desc = view.findViewById(R.id.bubble_description);
                         ImageView img = view.findViewById(R.id.bubble_image);
+                        Button btnUpdate = view.findViewById(R.id.bubble_update_button);
 
                         title.setText(m.getTitle());
                         desc.setText(m.getSnippet());
 
-                        // Load the specific station.photo
+                        // Set logic for the Update Button
+                        btnUpdate.setOnClickListener(v -> {
+                            handleUpdateClick(station);
+                        });
+
                         if (isAdded() && !photoPath.isEmpty()) {
                             Glide.with(requireContext())
                                     .load(finalPhotoUrl)
@@ -184,6 +194,20 @@ public class MapFragment extends Fragment {
             }
             map.invalidate();
         } catch (Exception e) { e.printStackTrace(); }
+    }
+
+    // Helper method to handle button action
+    private void handleUpdateClick(JSONObject station) {
+        try {
+            String name = station.getString("station_name");
+            Toast.makeText(requireContext(), "Opening update for: " + name, Toast.LENGTH_SHORT).show();
+            // Implement navigation to your Update Price Fragment/Activity here
+            String stationData = station.toString();
+            UpdatePriceFragment updateFragment = UpdatePriceFragment.newInstance(stationData);
+            updateFragment.show(getChildFragmentManager(), "UpdatePriceBottomSheet");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override

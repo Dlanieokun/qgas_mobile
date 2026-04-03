@@ -29,4 +29,14 @@
         android:layout_marginTop="8dp"
         android:textColor="#444444"
         android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/bubble_update_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Update Prices"
+        android:textAllCaps="false"
+        android:backgroundTint="@android:color/holo_blue_dark"
+        android:textColor="@android:color/white" />
 </LinearLayout>
