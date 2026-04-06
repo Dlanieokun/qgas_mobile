@@ -9,6 +9,7 @@ import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -298,6 +299,14 @@ public class GasFragment extends Fragment {
         boolean brandFound = false;
         ArrayList<String> temp = new ArrayList<>();
 
+        String text = visionText.getText();
+        String[] lines = text.split("\n");
+
+        for (String line : lines) {
+            Log.d("VisionText", line);
+        }
+
+
         for (Text.TextBlock block : visionText.getTextBlocks()) {
             String line = block.getText().trim();
             if (!brandFound && line.matches("^[a-zA-Z\\s]+$") && line.length() > 3) {
@@ -313,7 +322,7 @@ public class GasFragment extends Fragment {
                     lowerLine.contains("xcs") || lowerLine.contains("blaz") ||
                     lowerLine.contains("xtra") || lowerLine.contains("ext") ||
                     lowerLine.contains("pul") || lowerLine.contains("uni") ||
-                    lowerLine.contains("pow") || lowerLine.contains("tur")) {
+                    lowerLine.contains("pow") || lowerLine.contains("tur") || lowerLine.contains("reg")) {
                 temp.add(line);
             } else {
                 Matcher m = pricePattern.matcher(line);
