@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -37,13 +38,17 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import java.security.cert.CertificateException;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 public class HomeFragment extends Fragment {
 
     private RecyclerView recyclerView;
     private QueueAdapter adapter;
     private List<JSONObject> queueList = new ArrayList<>();
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = getUnsafeOkHttpClient();
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -69,115 +74,140 @@ public class HomeFragment extends Fragment {
             }
             adapter.notifyDataSetChanged();
 
+            // Start the sequential sync if the list is not empty
             if (!queueList.isEmpty()) {
-                syncQueueWithApi();
+                syncNextItem(0);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private void syncQueueWithApi() {
+    /**
+     * Uploads items one by one recursively.
+     * @param index The current index in the queueList to upload.
+     */
+    private void syncNextItem(int index) {
+        // Base case: if we have reached the end of the list, stop.
+        if (index >= queueList.size()) {
+            return;
+        }
+        Log.e("TEST", ": " + queueList.get(index).toString());
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-        String apiUrl = settings.getString("api_base_url", "http://113.19.12.104:8180/qgas/public/api");
+        String apiUrl = settings.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
+        String device_id = settings.getString("device_id", "");
 
-        List<JSONObject> itemsToUpload = new ArrayList<>(queueList);
+        JSONObject scan = queueList.get(index);
 
-        for (JSONObject scan : itemsToUpload) {
-            try {
-                MultipartBody.Builder builder = new MultipartBody.Builder()
-                        .setType(MultipartBody.FORM)
-                        .addFormDataPart("station_name", scan.getString("station"))
-                        .addFormDataPart("latitude", String.valueOf(scan.getDouble("latitude")))
-                        .addFormDataPart("longitude", String.valueOf(scan.getDouble("longitude")))
-                        .addFormDataPart("date_captured", scan.getString("timestamp"))
-                        .addFormDataPart("fuels", scan.getJSONArray("prices").toString());
+        try {
+            MultipartBody.Builder builder = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("station_name", scan.getString("station"))
+                    .addFormDataPart("latitude", String.valueOf(scan.getDouble("latitude")))
+                    .addFormDataPart("longitude", String.valueOf(scan.getDouble("longitude")))
+                    .addFormDataPart("date_captured", scan.getString("timestamp"))
+                    .addFormDataPart("fuels", scan.getJSONArray("prices").toString())
+                    .addFormDataPart("device_id", device_id);
 
-                if (scan.has("gasImagePath")) {
-                    String path = scan.getString("gasImagePath");
-                    if (!path.isEmpty()) {
-                        File file = new File(path);
-                        if (file.exists()) {
-                            builder.addFormDataPart("photo", file.getName(),
-                                    RequestBody.create(file, MediaType.parse("image/jpeg")));
-                        }
+            if (scan.has("gasImagePath")) {
+                String path = scan.getString("gasImagePath");
+                if (!path.isEmpty()) {
+                    File file = new File(path);
+                    if (file.exists()) {
+                        builder.addFormDataPart("photo", file.getName(),
+                                RequestBody.create(file, MediaType.parse("image/jpeg")));
                     }
                 }
+            }
 
-                if (scan.has("stationImagePath")) { // Matches GasFragment key
-                    String path = scan.getString("stationImagePath");
-                    if (!path.isEmpty()) {
-                        File file = new File(path);
-                        if (file.exists()) {
-                            Log.d("FileExists", "File exists: " + file.getAbsolutePath());
-
-                            // Adding the station_photo part for the API
-                            builder.addFormDataPart("station_photo", file.getName(),
-                                    RequestBody.create(file, MediaType.parse("image/jpeg")));
-                        }
+            if (scan.has("stationImagePath")) {
+                String path = scan.getString("stationImagePath");
+                if (!path.isEmpty()) {
+                    File file = new File(path);
+                    if (file.exists()) {
+                        builder.addFormDataPart("station_photo", file.getName(),
+                                RequestBody.create(file, MediaType.parse("image/jpeg")));
                     }
                 }
+            }
 
-                Request request = new Request.Builder()
-                        .url(apiUrl + "/station-fuel")
-                        .addHeader("Accept", "application/json")
-                        .post(builder.build())
-                        .build();
+            Request request = new Request.Builder()
+                    .url(apiUrl + "/qgas/public/api/station-fuel")
+                    .addHeader("Accept", "application/json")
+                    .post(builder.build())
+                    .build();
 
-                client.newCall(request).enqueue(new Callback() {
-                    @Override
-                    public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                        saveErrorToFile("Network failure: " + e.getMessage());
-                        showToast("Upload failed: Network Error");
-                    }
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                    saveErrorToFile("Network failure: " + e.getMessage());
+                    showToast("Upload failed: Network Error");
 
-                    @Override
-                    public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                    // Proceed to next item even if current fails (optional logic)
+                    syncNextItem(index + 1);
+                }
+
+                @Override
+                public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                    try {
                         String responseBody = response.body() != null ? response.body().string() : "No response body";
 
                         if (response.isSuccessful()) {
                             showToast("Uploaded successfully!");
-                            removeItemFromQueue(scan);
+
+                            // Remove from queue and update UI on Main Thread
+                            if (getActivity() != null) {
+                                getActivity().runOnUiThread(() -> {
+                                    removeItemFromQueue(scan);
+                                    // Since item is removed, the "next" item is now at the same 'index'
+                                    syncNextItem(index);
+                                });
+                            }
                         } else {
-                            // This captures the 422 validation errors from Laravel
                             String logEntry = "URL: " + request.url() +
                                     "\nStatus Code: " + response.code() +
                                     "\nResponse: " + responseBody;
                             saveErrorToFile(logEntry);
-                            showToast("Server Error " + response.code() + ". Details saved to error.txt");
+                            showToast("Server Error " + response.code());
+
+                            // Move to next item on server-side error
+                            syncNextItem(index + 1);
                         }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        syncNextItem(index + 1);
+                    } finally {
                         response.close();
                     }
-                });
-            } catch (Exception e) {
-                saveErrorToFile("JSON/Request Exception: " + e.getMessage());
-            }
+                }
+            });
+        } catch (Exception e) {
+            saveErrorToFile("JSON/Request Exception: " + e.getMessage());
+            syncNextItem(index + 1);
         }
     }
 
-    /**
-     * Appends error details to error.txt in the Documents folder.
-     */
     private void saveErrorToFile(String content) {
         new Thread(() -> {
             try {
-                // Access the Documents directory in public storage
-                File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-                if (!docsDir.exists()) {
+                // Access the app's internal "Documents" directory
+                // This does not require READ/WRITE_EXTERNAL_STORAGE permissions
+                File docsDir = requireContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+
+                if (docsDir != null && !docsDir.exists()) {
                     docsDir.mkdirs();
                 }
 
                 File logFile = new File(docsDir, "error.txt");
-
                 String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
                 String logMessage = "\n--- ERROR LOG [" + timestamp + "] ---\n" + content + "\n----------------------------\n";
 
-                // true = append mode
+                // Open in append mode (true)
                 FileOutputStream fos = new FileOutputStream(logFile, true);
                 fos.write(logMessage.getBytes(StandardCharsets.UTF_8));
                 fos.close();
 
-                Log.d("FileLogger", "Error written to: " + logFile.getAbsolutePath());
+                Log.d("FileLogger", "Error saved to: " + logFile.getAbsolutePath());
             } catch (IOException e) {
                 Log.e("FileLogger", "Could not write to file", e);
             }
@@ -193,14 +223,10 @@ public class HomeFragment extends Fragment {
     }
 
     private void removeItemFromQueue(JSONObject item) {
-        if (isAdded() && getActivity() != null) {
-            getActivity().runOnUiThread(() -> {
-                queueList.remove(item);
-                adapter.notifyDataSetChanged();
-                SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", Context.MODE_PRIVATE);
-                prefs.edit().putString("queue_data", new JSONArray(queueList).toString()).apply();
-            });
-        }
+        queueList.remove(item);
+        adapter.notifyDataSetChanged();
+        SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", Context.MODE_PRIVATE);
+        prefs.edit().putString("queue_data", new JSONArray(queueList).toString()).apply();
     }
 
     private class QueueAdapter extends RecyclerView.Adapter<QueueAdapter.ViewHolder> {
@@ -239,6 +265,33 @@ public class HomeFragment extends Fragment {
                 tvLat = itemView.findViewById(R.id.tv_q_lat);
                 tvLong = itemView.findViewById(R.id.tv_q_long);
             }
+        }
+    }
+
+    private OkHttpClient getUnsafeOkHttpClient() {
+        try {
+            final TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+                        @Override
+                        public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+                        @Override
+                        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                            return new java.security.cert.X509Certificate[]{};
+                        }
+                    }
+            };
+
+            final SSLContext sslContext = SSLContext.getInstance("SSL");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            return new OkHttpClient.Builder()
+                    .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
+                    .hostnameVerifier((hostname, session) -> true)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }

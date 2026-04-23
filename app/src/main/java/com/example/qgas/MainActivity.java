@@ -1,5 +1,8 @@
 package com.example.qgas;
 
+import android.Manifest;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -8,20 +11,50 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.Toast;
+
 import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 public class MainActivity extends AppCompatActivity {
 
     private LinearLayout btnHome, btnGas, btnMap, btnSettings;
     private View activeView = null;
+
+    private static final String PREFS_NAME = "AppConfig";
+    private static final String KEY_WHITELIST_STATUS = "whitelist_status";
+
+    // Launcher for handling multiple runtime permissions
+    private final ActivityResultLauncher<String[]> permissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                boolean allGranted = true;
+                for (Map.Entry<String, Boolean> entry : result.entrySet()) {
+                    if (!entry.getValue()) {
+                        allGranted = false;
+                        break;
+                    }
+                }
+
+                if (allGranted) {
+                    Toast.makeText(this, "Permissions Granted", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Permissions are required for OCR and Location features", Toast.LENGTH_LONG).show();
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -31,7 +64,9 @@ public class MainActivity extends AppCompatActivity {
 
         hideSystemUI();
 
-        // New: Handle Back Press to show modal
+        // Check for Camera and Location permissions on startup
+        checkAndRequestPermissions();
+
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -55,10 +90,7 @@ public class MainActivity extends AppCompatActivity {
         btnMap.setAlpha(0.6f);
         btnSettings.setAlpha(0.6f);
 
-        if (savedInstanceState == null) {
-            loadFragment(new HomeFragment());
-            setActive(btnHome);
-        }
+        updateNavVisibility();
 
         btnHome.setOnClickListener(v -> { loadFragment(new HomeFragment()); setActive(btnHome); });
         btnGas.setOnClickListener(v -> { loadFragment(new GasFragment()); setActive(btnGas); });
@@ -66,12 +98,58 @@ public class MainActivity extends AppCompatActivity {
         btnSettings.setOnClickListener(v -> { loadFragment(new SettingsFragment()); setActive(btnSettings); });
     }
 
-    private void showExitDialog() {
-        // Fix: Use LayoutInflater to get the custom view
-        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_exit, null);
+    private void checkAndRequestPermissions() {
+        // Define the permissions needed for gas station OCR and mapping
+        String[] permissions = {
+                Manifest.permission.CAMERA,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+        };
 
-        // Fix: Removed the specific R.style reference that caused the error
-        // Standard AlertDialog.Builder will use your app's default theme
+        List<String> listPermissionsNeeded = new ArrayList<>();
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                listPermissionsNeeded.add(permission);
+            }
+        }
+
+        if (!listPermissionsNeeded.isEmpty()) {
+            permissionLauncher.launch(listPermissionsNeeded.toArray(new String[0]));
+        }
+    }
+
+    public void updateNavVisibility() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String status = prefs.getString(KEY_WHITELIST_STATUS, "NOT WHITELISTED");
+
+        if ("WHITELISTED".equals(status)) {
+            btnHome.setVisibility(View.VISIBLE);
+            btnGas.setVisibility(View.VISIBLE);
+            btnMap.setVisibility(View.VISIBLE);
+
+            if (activeView == null) {
+                loadFragment(new HomeFragment());
+                setActive(btnHome);
+            }
+        } else {
+            btnHome.setVisibility(View.GONE);
+            btnGas.setVisibility(View.GONE);
+            btnMap.setVisibility(View.GONE);
+
+            loadFragment(new SettingsFragment());
+            setActive(btnSettings);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        hideSystemUI();
+        updateNavVisibility();
+    }
+
+    private void showExitDialog() {
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_exit, null);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(dialogView)
                 .create();
@@ -83,8 +161,6 @@ public class MainActivity extends AppCompatActivity {
         btnExit.setOnClickListener(v -> finish());
 
         dialog.show();
-
-        // Re-hide UI if the dialog caused system bars to appear
         dialog.setOnDismissListener(d -> hideSystemUI());
     }
 
@@ -122,5 +198,15 @@ public class MainActivity extends AppCompatActivity {
                 controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             }
         }
+    }
+
+    public void navigateToHome() {
+        loadFragment(new HomeFragment());
+        setActive(btnHome);
+    }
+
+    public void navigateToMap() {
+        loadFragment(new MapFragment());
+        setActive(btnMap);
     }
 }

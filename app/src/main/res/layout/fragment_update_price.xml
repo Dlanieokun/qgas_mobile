@@ -21,7 +21,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Tap images to Camera"
+            android:text="Tap images to take Camera"
             android:textSize="12sp"
             android:textColor="#FF5722"
             android:layout_marginTop="8dp"
@@ -31,12 +31,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Station Photo"
+            android:visibility="gone"
             android:textStyle="bold" />
 
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="180dp"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
 
             <ImageView
                 android:id="@+id/update_station_image"
@@ -64,21 +66,21 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="180dp"
+            android:layout_height="320dp"
             android:layout_marginBottom="16dp">
 
             <ImageView
                 android:id="@+id/update_captured_image"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:background="#EEEEEE" />
+                android:scaleType="fitCenter"  android:background="#EEEEEE" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
                 android:text="Tap to Change the Gas Prices"
+                android:visibility="invisible"
                 android:textColor="@android:color/white"
                 android:background="#80000000"
                 android:padding="8dp"
@@ -89,7 +91,109 @@
             android:id="@+id/fuel_input_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Diesel:"
+                android:textStyle="bold"
+                android:textColor="#3F51B5"
+                android:textSize="24sp"
+                android:layout_marginTop="16dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="2">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Premium:"/>
+                    <EditText
+                        android:id="@+id/edit_diesel_premium"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="numberDecimal"
+                        android:textSize="28sp"
+                        android:selectAllOnFocus="true"
+                        android:text="0.00"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Standard:"/>
+                    <EditText
+                        android:id="@+id/edit_diesel_standard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:selectAllOnFocus="true"
+                        android:inputType="numberDecimal"
+                        android:textSize="28sp"
+                        android:text="0.00"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Gasoline:"
+                android:textStyle="bold"
+                android:textColor="#3F51B5"
+                android:textSize="24sp"
+                android:layout_marginTop="16dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="2">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Premium:"/>
+                    <EditText
+                        android:id="@+id/edit_gas_premium"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:selectAllOnFocus="true"
+                        android:inputType="numberDecimal"
+                        android:textSize="28sp"
+                        android:text="0.00"/>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Standard:"/>
+                    <EditText
+                        android:id="@+id/edit_gas_standard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="numberDecimal"
+                        android:selectAllOnFocus="true"
+                        android:textSize="28sp"
+                        android:text="0.00"/>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
 
         <Button
             android:id="@+id/btn_save_prices"
@@ -98,6 +202,7 @@
             android:layout_marginTop="24dp"
             android:text="Save All Updates"
             android:backgroundTint="@android:color/holo_green_dark"
+            android:visibility="gone"
             android:textColor="@android:color/white" />
     </LinearLayout>
 </ScrollView>

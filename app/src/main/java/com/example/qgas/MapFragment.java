@@ -8,8 +8,10 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.location.Location;
+import android.net.Uri;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,19 +38,29 @@ import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.infowindow.MarkerInfoWindow;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class MapFragment extends Fragment {
 
     private MapView map = null;
     private FusedLocationProviderClient fusedLocationClient;
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = UnsafeOkHttpHelper.getUnsafeOkHttpClient();
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -101,8 +113,8 @@ public class MapFragment extends Fragment {
 
     private void fetchNearbyStations(double lat, double lon) {
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-        String apiUrl = settings.getString("api_base_url", "http://113.19.12.104:8180/qgas/public/api");
-        String url = apiUrl + "/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon;
+        String apiUrl = settings.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
+        String url = apiUrl + "/qgas/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=" + 5000;
 
         Request request = new Request.Builder().url(url).addHeader("Accept", "application/json").build();
         client.newCall(request).enqueue(new Callback() {
@@ -125,6 +137,7 @@ public class MapFragment extends Fragment {
                         requireActivity().runOnUiThread(() -> {
                             Toast.makeText(requireContext(), "Stations: " + response.message(), Toast.LENGTH_SHORT).show();
                         });
+                        Log.e("MapFragment", "Stations: " + response);
                     }
                 }
             }
@@ -161,7 +174,7 @@ public class MapFragment extends Fragment {
                 if (gasIcon != null) m.setIcon(gasIcon);
 
                 String finalBaseUrl = baseImgUrl.replace("public", "storage");
-                final String finalPhotoUrl = finalBaseUrl + (photoPath.startsWith("/") ? "" : "/") + photoPath;
+                final String finalPhotoUrl = finalBaseUrl + "/qgas/storage" + (photoPath.startsWith("/") ? "" : "/") + photoPath;
 
                 m.setInfoWindow(new MarkerInfoWindow(R.layout.custom_info_window, map) {
                     @Override
@@ -211,7 +224,124 @@ public class MapFragment extends Fragment {
     }
 
     @Override
-    public void onResume() { super.onResume(); if(map != null) map.onResume(); }
+    public void onResume() { super.onResume(); if(map != null) map.onResume(); syncOfflineQueue(); }
     @Override
     public void onPause() { super.onPause(); if(map != null) map.onPause(); }
+
+    private OkHttpClient getUnsafeOkHttpClient() {
+        try {
+            // Create a trust manager that does not validate certificate chains
+            final TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+
+                        @Override
+                        public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+
+                        @Override
+                        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                            return new java.security.cert.X509Certificate[]{};
+                        }
+                    }
+            };
+
+            // Install the all-trusting trust manager
+            final SSLContext sslContext = SSLContext.getInstance("SSL");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            // Create an ssl socket factory with our all-trusting manager
+            return new OkHttpClient.Builder()
+                    .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
+                    .hostnameVerifier((hostname, session) -> true)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void syncOfflineQueue() {
+        SharedPreferences prefs = requireContext().getSharedPreferences("UpdatePriceQueue", Context.MODE_PRIVATE);
+        String pendingData = prefs.getString("pending_updates", "[]");
+
+        try {
+            JSONArray queue = new JSONArray(pendingData);
+            if (queue.length() > 0) {
+                requireActivity().runOnUiThread(() ->
+                        Toast.makeText(getContext(), "Syncing " + queue.length() + " pending updates...", Toast.LENGTH_SHORT).show());
+                processNextInSyncQueue(0, queue);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void processNextInSyncQueue(int index, JSONArray queue) {
+        if (index >= queue.length()) {
+            requireActivity().runOnUiThread(() ->
+                    Toast.makeText(getContext(), "Offline data synced successfully!", Toast.LENGTH_SHORT).show());
+            return;
+        }
+
+        try {
+            JSONObject task = queue.getJSONObject(index);
+            String pid = task.getString("pid");
+
+            MultipartBody.Builder builder = new MultipartBody.Builder().setType(MultipartBody.FORM)
+                    .addFormDataPart("fuels", task.getString("fuels"))
+                    .addFormDataPart("date_captured", task.getString("date_captured"))
+                    .addFormDataPart("device_id", task.getString("device_id"));
+
+            if (task.has("captured_uri")) {
+                Uri uri = Uri.parse(task.getString("captured_uri"));
+                addFileSync(builder, "photo", uri);
+            }
+
+            SharedPreferences sp = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+            String url = sp.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282") + "/qgas/public/api/station-fuel/" + pid;
+
+            Request request = new Request.Builder().url(url).post(builder.build()).build();
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                    processNextInSyncQueue(index + 1, queue);
+                }
+
+                @Override
+                public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                    if (response.isSuccessful()) {
+                        removeFromQueue(task);
+                    }
+                    processNextInSyncQueue(index + 1, queue);
+                }
+            });
+        } catch (Exception e) {
+            processNextInSyncQueue(index + 1, queue);
+        }
+    }
+
+    private void addFileSync(MultipartBody.Builder builder, String key, Uri uri) throws IOException {
+        File file = new File(requireContext().getExternalCacheDir(), "sync_temp.jpg");
+        try (InputStream is = requireContext().getContentResolver().openInputStream(uri);
+             FileOutputStream os = new FileOutputStream(file)) {
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = is.read(buffer)) > 0) os.write(buffer, 0, length);
+        }
+        builder.addFormDataPart(key, file.getName(), RequestBody.create(file, MediaType.parse("image/jpeg")));
+    }
+
+    private void removeFromQueue(JSONObject taskToRemove) {
+        SharedPreferences prefs = requireContext().getSharedPreferences("UpdatePriceQueue", Context.MODE_PRIVATE);
+        try {
+            JSONArray current = new JSONArray(prefs.getString("pending_updates", "[]"));
+            JSONArray updated = new JSONArray();
+            for (int i = 0; i < current.length(); i++) {
+                if (!current.getJSONObject(i).toString().equals(taskToRemove.toString())) {
+                    updated.put(current.getJSONObject(i));
+                }
+            }
+            prefs.edit().putString("pending_updates", updated.toString()).apply();
+        } catch (Exception e) { e.printStackTrace(); }
+    }
 }

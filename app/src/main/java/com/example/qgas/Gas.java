@@ -2,9 +2,9 @@ package com.example.qgas;
 
 public class Gas {
     private String name;
-    private Float price;
+    private Double price;
 
-    public Gas(String name, Float price) {
+    public Gas(String name, Double price) {
         this.name = name;
         this.price = price;
     }
@@ -14,8 +14,8 @@ public class Gas {
     }
     public void setName(String name) { this.name = name; }
 
-    public Float getPrice() {
+    public Double getPrice() {
         return price;
     }
-    public void setPrice(float price) { this.price = price; }
+    public void setPrice(double price) { this.price = price; }
 }
