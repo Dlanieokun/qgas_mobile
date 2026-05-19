@@ -2,8 +2,10 @@ package com.example.qgas;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -12,6 +14,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -23,6 +26,7 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -50,17 +54,236 @@ public class HomeFragment extends Fragment {
     private List<JSONObject> queueList = new ArrayList<>();
     private final OkHttpClient client = getUnsafeOkHttpClient();
 
+    private static final String PREFS_NAME = "AppConfig";
+    private static final String KEY_API_URL = "api_base_url";
+    private static final String KEY_WHITELIST_STATUS = "whitelist_status";
+    private static final String KEY_DEVICE_ID = "device_id";
+
+    private RecyclerView rvUpdates;
+    private QueueAdapter updatesAdapter;
+    private List<JSONObject> updatesList = new ArrayList<>();
+    private boolean isUpdatingItems = false;
+
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        // New Station Queue
         View view = inflater.inflate(R.layout.fragment_home, container, false);
         recyclerView = view.findViewById(R.id.rv_home_queue);
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
-
         adapter = new QueueAdapter(queueList);
         recyclerView.setAdapter(adapter);
 
-        loadQueue();
+        // New Update Queue
+        rvUpdates = view.findViewById(R.id.rv_updates_queue);
+        rvUpdates.setLayoutManager(new LinearLayoutManager(getContext()));
+        updatesAdapter = new QueueAdapter(updatesList);
+        rvUpdates.setAdapter(updatesAdapter);
+
         return view;
+    }
+
+    private void loadUpdatesQueue() {
+        SharedPreferences prefs = requireContext().getSharedPreferences("UpdatePriceQueue", Context.MODE_PRIVATE);
+        String data = prefs.getString("pending_updates", "[]");
+        try {
+            JSONArray jsonArray = new JSONArray(data);
+            updatesList.clear();
+            for (int i = 0; i < jsonArray.length(); i++) {
+                updatesList.add(jsonArray.getJSONObject(i));
+            }
+            updatesAdapter.notifyDataSetChanged();
+
+            // Start the sequential sync for updates if not already running
+            if (!updatesList.isEmpty() && !isUpdatingItems) {
+                syncNextUpdate(0);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void syncNextUpdate(int index) {
+        if (index >= updatesList.size()) {
+            isUpdatingItems = false;
+            return;
+        }
+
+        isUpdatingItems = true;
+        JSONObject task = updatesList.get(index);
+
+        try {
+            String pid = task.getString("pid");
+            String Mun = task.getString("municipality");
+            double lon = task.getDouble("longitude");
+            double lat = task.getDouble("latitude");
+            Mun = displayMunicipalityToast(lat, lon);
+
+            MultipartBody.Builder builder = new MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("fuels", task.getString("fuels"))
+                    .addFormDataPart("date_captured", task.getString("date_captured"))
+                    .addFormDataPart("device_id", task.getString("device_id"))
+                    .addFormDataPart("status", task.getString("status"))
+                    .addFormDataPart("municipality", Mun);
+
+            // Handle image attachment if present
+            if (task.has("captured_uri")) {
+                addFileToBuilder(builder, "photo", Uri.parse(task.getString("captured_uri")));
+            }
+            if (task.has("captured_update_uri")) {
+                String path = task.getString("captured_update_uri");
+                if (!path.isEmpty()) {
+                    File file = new File(path);
+                    if (file.exists()) {
+                        builder.addFormDataPart("photo", file.getName(),
+                                RequestBody.create(file, MediaType.parse("image/jpeg")));
+                    }
+                }
+            }
+
+            SharedPreferences sp = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+            String baseUrl = sp.getString("api_base_url", "https://qgas.site");
+            String url = baseUrl + "/public/api/station-fuel/" + pid;
+
+            Request request = new Request.Builder()
+                    .url(url)
+                    .addHeader("Accept", "application/json")
+                    .post(builder.build())
+                    .build();
+
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                    saveErrorToFile("Update Sync Failure: " + e.getMessage());
+                    showToast("Update Sync Failure: " + e.getMessage());
+                    // Move to next even on failure to avoid getting stuck
+                    syncNextUpdate(index + 1);
+                }
+
+                @Override
+                public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                    try (Response resp = response) {
+                        if (resp.isSuccessful()) {
+                            if (getActivity() != null) {
+                                getActivity().runOnUiThread(() -> {
+                                    Toast.makeText(getContext(), "Price updated successfully!", Toast.LENGTH_SHORT).show();
+                                    removeUpdateFromQueue(task);
+                                    // Item removed, so the next item is now at the current index
+                                    syncNextUpdate(index);
+                                });
+                            }
+                        } else {
+                            saveErrorToFile("Update Server Error: " + resp.toString());
+                            showToast("Update Failed: Server Error " + resp.toString());
+                            syncNextUpdate(index + 1);
+                        }
+                    }
+                }
+            });
+        } catch (Exception e) {
+            e.printStackTrace();
+            syncNextUpdate(index + 1);
+        }
+    }
+
+    private void removeUpdateFromQueue(JSONObject item) {
+        updatesList.remove(item);
+        updatesAdapter.notifyDataSetChanged();
+        SharedPreferences prefs = requireContext().getSharedPreferences("UpdatePriceQueue", Context.MODE_PRIVATE);
+        prefs.edit().putString("pending_updates", new JSONArray(updatesList).toString()).apply();
+    }
+
+    /**
+     * Helper to convert Uri to File for Multipart upload, matching UpdatePriceFragment logic.
+     */
+    private void addFileToBuilder(MultipartBody.Builder builder, String key, Uri uri) throws IOException {
+        if (uri == null || uri.getScheme() == null || uri.getScheme().startsWith("http")) return;
+
+        File file = new File(requireContext().getExternalCacheDir(), key + "_sync_temp.jpg");
+        try (InputStream is = requireContext().getContentResolver().openInputStream(uri);
+             FileOutputStream os = new FileOutputStream(file)) {
+            if (is == null) return;
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = is.read(buffer)) > 0) os.write(buffer, 0, length);
+        }
+        builder.addFormDataPart(key, file.getName(), RequestBody.create(file, MediaType.parse("image/jpeg")));
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        // Trigger whitelist check whenever the fragment view is created
+
+        loadQueue();
+        loadUpdatesQueue();
+        checkAPI();
+        checkWhitelist();
+    }
+
+    private void checkAPI() {
+        SharedPreferences settings = requireActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String currentUrl = settings.getString(KEY_API_URL, "");
+        String legacyUrl = "https://services.leyteprovince.gov.ph:8282";
+        String targetUrl = "https://qgas.site";
+
+        if (currentUrl == null || currentUrl.isEmpty() || currentUrl.equals(legacyUrl)) {
+            settings.edit().putString(KEY_API_URL, targetUrl).apply();
+            Toast.makeText(getContext(), "Using default URL", Toast.LENGTH_LONG).show();
+        }
+    }
+
+
+    private void checkWhitelist() {
+        String androidId = Settings.Secure.getString(requireContext().getContentResolver(), Settings.Secure.ANDROID_ID);
+        final String finalAndroidId = (androidId != null) ? androidId.toUpperCase() : "UNKNOWN";
+
+        SharedPreferences settings = requireActivity().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String originalUrl = settings.getString(KEY_API_URL, "https://qgas.site");
+
+        if (originalUrl == null || originalUrl.isEmpty()) return;
+
+        String baseUrl = originalUrl.endsWith("/") ? originalUrl.substring(0, originalUrl.length() - 1) : originalUrl;
+        String url = baseUrl + "/public/api/user/is-device-whitelisted/" + finalAndroidId;
+
+        Request request = new Request.Builder().url(url).build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                Log.e("HomeFragment", "Whitelist check failed: " + e.getMessage());
+            }
+
+            @Override
+            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                try (Response resp = response) {
+                    String responseData = resp.body().string();
+                    JSONObject json = new JSONObject(responseData);
+                    boolean isSuccess = json.optBoolean("success", false);
+
+                    if (getActivity() != null) {
+                        getActivity().runOnUiThread(() -> {
+                            SharedPreferences.Editor editor = settings.edit();
+                            if (isSuccess) {
+                                editor.putString(KEY_WHITELIST_STATUS, "WHITELISTED");
+                                editor.putString(KEY_DEVICE_ID, finalAndroidId);
+                            } else {
+                                editor.putString(KEY_WHITELIST_STATUS, "NOT WHITELISTED");
+                                showToast("Your not in the Whitelist anymore!");
+                            }
+                            editor.apply();
+
+                            // Update navigation visibility in MainActivity if needed
+                            if (getActivity() instanceof MainActivity) {
+                                ((MainActivity) getActivity()).updateNavVisibility();
+                            }
+                        });
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     private void loadQueue() {
@@ -94,7 +317,7 @@ public class HomeFragment extends Fragment {
         }
         Log.e("TEST", ": " + queueList.get(index).toString());
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-        String apiUrl = settings.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
+        String apiUrl = settings.getString("api_base_url", "https://qgas.site");
         String device_id = settings.getString("device_id", "");
 
         JSONObject scan = queueList.get(index);
@@ -107,7 +330,8 @@ public class HomeFragment extends Fragment {
                     .addFormDataPart("longitude", String.valueOf(scan.getDouble("longitude")))
                     .addFormDataPart("date_captured", scan.getString("timestamp"))
                     .addFormDataPart("fuels", scan.getJSONArray("prices").toString())
-                    .addFormDataPart("device_id", device_id);
+                    .addFormDataPart("device_id", device_id)
+                    .addFormDataPart("municipality", scan.getString("municipality"));
 
             if (scan.has("gasImagePath")) {
                 String path = scan.getString("gasImagePath");
@@ -132,7 +356,7 @@ public class HomeFragment extends Fragment {
             }
 
             Request request = new Request.Builder()
-                    .url(apiUrl + "/qgas/public/api/station-fuel")
+                    .url(apiUrl + "/public/api/station-fuel")
                     .addHeader("Accept", "application/json")
                     .post(builder.build())
                     .build();
@@ -190,26 +414,29 @@ public class HomeFragment extends Fragment {
     private void saveErrorToFile(String content) {
         new Thread(() -> {
             try {
-                // Access the app's internal "Documents" directory
-                // This does not require READ/WRITE_EXTERNAL_STORAGE permissions
-                File docsDir = requireContext().getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+                // Get the public Documents directory (/storage/emulated/0/Documents)
+                File docsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
 
-                if (docsDir != null && !docsDir.exists()) {
+                if (!docsDir.exists()) {
                     docsDir.mkdirs();
                 }
 
-                File logFile = new File(docsDir, "error.txt");
+                // Define the log file
+                File logFile = new File(docsDir, "qgas_errors.txt");
+
+                // Generate timestamp for the entry
                 String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
-                String logMessage = "\n--- ERROR LOG [" + timestamp + "] ---\n" + content + "\n----------------------------\n";
+                String logEntry = "\n--- ERROR [" + timestamp + "] ---\n" + content + "\n---------------------\n";
 
-                // Open in append mode (true)
-                FileOutputStream fos = new FileOutputStream(logFile, true);
-                fos.write(logMessage.getBytes(StandardCharsets.UTF_8));
-                fos.close();
+                // Write to file in append mode
+                try (FileOutputStream fos = new FileOutputStream(logFile, true)) {
+                    fos.write(logEntry.getBytes(StandardCharsets.UTF_8));
+                    fos.flush();
+                }
 
-                Log.d("FileLogger", "Error saved to: " + logFile.getAbsolutePath());
+                Log.d("FileLogger", "Saved to public Documents: " + logFile.getAbsolutePath());
             } catch (IOException e) {
-                Log.e("FileLogger", "Could not write to file", e);
+                Log.e("FileLogger", "Public storage write failed. Check permissions.", e);
             }
         }).start();
     }
@@ -244,12 +471,53 @@ public class HomeFragment extends Fragment {
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             try {
                 JSONObject obj = items.get(position);
-                holder.tvStation.setText(obj.getString("station"));
-                holder.tvTime.setText(obj.getString("timestamp"));
-                holder.tvLat.setText("Lat: " + obj.getDouble("latitude"));
-                holder.tvLong.setText("Long: " + obj.getDouble("longitude"));
-                holder.tvDetails.setText("Fuels: " + obj.getJSONArray("prices").length());
-            } catch (Exception e) { e.printStackTrace(); }
+
+                String stationName = obj.optString("station", "");
+                if (stationName.isEmpty()) {
+                    holder.tvStation.setVisibility(View.GONE);
+                } else {
+                    holder.tvStation.setVisibility(View.VISIBLE);
+                    holder.tvStation.setText(stationName);
+                }
+
+                holder.tvTime.setText(obj.optString("timestamp", obj.optString("date_captured", "")));
+
+                if (obj.has("latitude")) {
+                    holder.tvLat.setText("Lat: " + obj.getDouble("latitude"));
+                    holder.tvLong.setText("Long: " + obj.getDouble("longitude"));
+                } else {
+                    holder.tvLat.setText("Price Update");
+                    holder.tvLong.setText("");
+                }
+
+                // Handle fuel display
+                if (obj.has("prices")) {
+                    // New Scan logic
+                    JSONArray pricesArray = obj.getJSONArray("prices");
+                    holder.tvDetails.setText("Fuels: " + pricesArray.length());
+                    // If you want to list them here too, use the same loop logic as below
+                } else if (obj.has("fuels")) {
+                    // Update Task logic
+                    JSONArray fArray = new JSONArray(obj.getString("fuels"));
+
+                    // IMPORTANT: setText clears the old data from recycled views
+                    holder.tvDetails.setText("Updating: " + fArray.length() + " fuels");
+
+                    for (int i = 0; i < fArray.length(); i++) {
+                        JSONObject fuelObj = fArray.getJSONObject(i);
+
+                        // Use "name" as per your latest snippet
+                        String name = fuelObj.optString("name", "Unknown Fuel");
+                        double price = fuelObj.optDouble("price", 0.00);
+
+                        // Fixed the format string typo here
+                        holder.tvDetails.append("\n" + name + ": ₱" + String.format("%.2f", price));
+                    }
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
@@ -293,5 +561,37 @@ public class HomeFragment extends Fragment {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private String displayMunicipalityToast(double lat, double lon) {
+        // Check if fragment is still attached to prevent crashes
+        if (!isAdded() || getContext() == null) return "";
+
+        android.location.Geocoder geocoder = new android.location.Geocoder(requireContext(), java.util.Locale.getDefault());
+        try {
+            List<android.location.Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+
+            if (addresses != null && !addresses.isEmpty()) {
+                android.location.Address address = addresses.get(0);
+                String municipality = address.getLocality();
+
+                if (municipality == null) {
+                    municipality = address.getSubAdminArea();
+                }
+
+                if (municipality != null) {
+                    // Ensure Toast runs on UI thread if this is called from a background thread
+                    String finalMunicipality = municipality;
+                    getActivity().runOnUiThread(() ->
+                            Toast.makeText(getContext(), "Location: " + finalMunicipality.toUpperCase(), Toast.LENGTH_SHORT).show()
+                    );
+                    return municipality.toUpperCase();
+                }
+            }
+        } catch (IOException e) {
+            Log.e("Geocoder", "Network or service unavailable", e);
+        }
+
+        return "";
     }
 }

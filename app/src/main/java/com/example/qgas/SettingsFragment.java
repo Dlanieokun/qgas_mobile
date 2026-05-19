@@ -46,7 +46,7 @@ public class SettingsFragment extends Fragment {
     private static final String KEY_API_URL = "api_base_url";
     private static final String KEY_WHITELIST_STATUS = "whitelist_status";
     private static final String KEY_DEVICE_ID = "device_id";
-    private static final String DEFAULT_URL = "https://services.leyteprovince.gov.ph:8282";
+    private static final String DEFAULT_URL = "https://qgas.site";
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -119,9 +119,9 @@ public class SettingsFragment extends Fragment {
 
         // Clean URL to prevent double slashes
         String baseUrl = originalUrl.endsWith("/") ? originalUrl.substring(0, originalUrl.length() - 1) : originalUrl;
-        String url = baseUrl + "/qgas/public/api/user/is-device-whitelisted/" + finalAndroidId;
+        String url = baseUrl + "/public/api/user/is-device-whitelisted/" + finalAndroidId;
 
-        Request request = new Request.Builder().url(url).build();
+        Request request = new Request.Builder().url(url).addHeader("Accept", "application/json").build();
 
         client.newCall(request).enqueue(new Callback() {
             @Override

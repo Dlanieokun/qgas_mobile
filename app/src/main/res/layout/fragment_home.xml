@@ -9,15 +9,38 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="16dp"
-        android:text="Pending Scans"
-        android:textSize="22sp"
+        android:text="Pending Scans (New Stations)"
+        android:textSize="20sp"
         android:textStyle="bold"
         android:textColor="#212121" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_home_queue"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:padding="8dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DDDDDD" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:text="Pending Price Updates"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="#212121" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_updates_queue"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false"
         android:padding="8dp" />
 </LinearLayout>

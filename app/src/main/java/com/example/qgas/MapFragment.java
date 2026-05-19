@@ -21,6 +21,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
@@ -28,6 +29,7 @@ import androidx.fragment.app.Fragment;
 import com.bumptech.glide.Glide;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.material.textfield.TextInputEditText;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -61,6 +63,13 @@ public class MapFragment extends Fragment {
     private MapView map = null;
     private FusedLocationProviderClient fusedLocationClient;
     private final OkHttpClient client = UnsafeOkHttpHelper.getUnsafeOkHttpClient();
+    private TextInputEditText etRadius;
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        checkPermissionsAndGetLocation();
+    }
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -72,7 +81,14 @@ public class MapFragment extends Fragment {
         map.setMultiTouchControls(true);
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity());
-        checkPermissionsAndGetLocation();
+
+        etRadius = view.findViewById(R.id.et_radius);
+
+        // Optional: Refresh map when user changes radius
+        etRadius.setOnEditorActionListener((v, actionId, event) -> {
+            refreshLocationAndStations();
+            return true;
+        });
 
         return view;
     }
@@ -101,6 +117,32 @@ public class MapFragment extends Fragment {
         fetchNearbyStations(location.getLatitude(), location.getLongitude());
     }
 
+    private void refreshLocationAndStations() {
+        // 1. Check permissions again to ensure safety
+        if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 100);
+            return;
+        }
+
+        // 2. Show a small feedback to the user
+        Toast.makeText(requireContext(), "Refreshing nearby stations...", Toast.LENGTH_SHORT).show();
+
+        // 3. Get fresh location and then fetch stations
+        fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
+            if (location != null && isAdded()) {
+                // Update map center to current position
+                GeoPoint currentPoint = new GeoPoint(location.getLatitude(), location.getLongitude());
+                map.getController().animateTo(currentPoint);
+
+                // Fetch stations with the updated radius from the EditText
+                fetchNearbyStations(location.getLatitude(), location.getLongitude());
+            } else {
+                Toast.makeText(requireContext(), "Unable to determine location.", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
     private Drawable getResizedIcon(int resourceId, int size) {
         Drawable drawable = ContextCompat.getDrawable(requireContext(), resourceId);
         if (drawable instanceof BitmapDrawable) {
@@ -112,9 +154,13 @@ public class MapFragment extends Fragment {
     }
 
     private void fetchNearbyStations(double lat, double lon) {
+        String radiusStr = etRadius.getText().toString();
+        double radiusKm = radiusStr.isEmpty() ? 5.0 : Double.parseDouble(radiusStr);
+        int radiusMeters = (int) (radiusKm * 1000);
+
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-        String apiUrl = settings.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
-        String url = apiUrl + "/qgas/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=" + 5000;
+        String apiUrl = settings.getString("api_base_url", "https://qgas.site");
+        String url = apiUrl + "/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=" + radiusMeters;
 
         Request request = new Request.Builder().url(url).addHeader("Accept", "application/json").build();
         client.newCall(request).enqueue(new Callback() {
@@ -145,11 +191,20 @@ public class MapFragment extends Fragment {
     }
 
     private void displayMarkers(JSONArray stations) {
-        if (getContext() == null) return;
+        if (getContext() == null || map == null) return;
+
+        // 1. Clear existing markers so they don't stack up when radius changes
+        map.getOverlays().clear();
+
+        // 2. Re-add the user's location marker (optional, or re-fetch current loc)
+        // For brevity, we just focus on the station markers here.
 
         Drawable gasIcon = getResizedIcon(R.drawable.ic_gas_station, 100);
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-        String baseImgUrl = settings.getString("api_base_url", "").replace("/api", "");
+        String apiBaseUrl = settings.getString("api_base_url", "https://qgas.site");
+
+        // Fix: Ensure the base image URL points correctly to storage
+        String baseImgUrl = apiBaseUrl.replace("/api", "") + "/storage/app/public/";
 
         try {
             for (int i = 0; i < stations.length(); i++) {
@@ -158,7 +213,9 @@ public class MapFragment extends Fragment {
 
                 StringBuilder priceBuilder = new StringBuilder();
                 if (station.has("data") && !station.isNull("data")) {
-                    JSONArray fuels = new JSONArray(station.getString("data"));
+                    Object dataObj = station.get("data");
+                    JSONArray fuels = (dataObj instanceof String) ? new JSONArray((String) dataObj) : (JSONArray) dataObj;
+
                     for (int j = 0; j < fuels.length(); j++) {
                         JSONObject f = fuels.getJSONObject(j);
                         priceBuilder.append(f.getString("name")).append(": ₱").append(f.getString("price")).append("\n");
@@ -170,28 +227,24 @@ public class MapFragment extends Fragment {
                 m.setTitle(station.getString("station_name"));
                 m.setSnippet(priceBuilder.toString().trim());
                 m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-
                 if (gasIcon != null) m.setIcon(gasIcon);
 
-                String finalBaseUrl = baseImgUrl.replace("public", "storage");
-                final String finalPhotoUrl = finalBaseUrl + "/qgas/storage" + (photoPath.startsWith("/") ? "" : "/") + photoPath;
+                // Correct photo URL construction
+                final String finalPhotoUrl = baseImgUrl + photoPath;
 
                 m.setInfoWindow(new MarkerInfoWindow(R.layout.custom_info_window, map) {
                     @Override
                     public void onOpen(Object item) {
-                        View view = getView();
-                        TextView title = view.findViewById(R.id.bubble_title);
-                        TextView desc = view.findViewById(R.id.bubble_description);
-                        ImageView img = view.findViewById(R.id.bubble_image);
-                        Button btnUpdate = view.findViewById(R.id.bubble_update_button);
+                        // FIX: Use 'mView' (the InfoWindow layout), NOT 'getView()' (the Fragment layout)
+                        TextView title = mView.findViewById(R.id.bubble_title);
+                        TextView desc = mView.findViewById(R.id.bubble_description);
+                        ImageView img = mView.findViewById(R.id.bubble_image);
+                        Button btnUpdate = mView.findViewById(R.id.bubble_update_button);
 
                         title.setText(m.getTitle());
                         desc.setText(m.getSnippet());
 
-                        // Set logic for the Update Button
-                        btnUpdate.setOnClickListener(v -> {
-                            handleUpdateClick(station);
-                        });
+                        btnUpdate.setOnClickListener(v -> handleUpdateClick(station));
 
                         if (isAdded() && !photoPath.isEmpty()) {
                             Glide.with(requireContext())
@@ -205,8 +258,10 @@ public class MapFragment extends Fragment {
 
                 map.getOverlays().add(m);
             }
-            map.invalidate();
-        } catch (Exception e) { e.printStackTrace(); }
+            map.invalidate(); // Refresh map
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     // Helper method to handle button action
@@ -224,7 +279,7 @@ public class MapFragment extends Fragment {
     }
 
     @Override
-    public void onResume() { super.onResume(); if(map != null) map.onResume(); syncOfflineQueue(); }
+    public void onResume() { super.onResume(); if(map != null) map.onResume();}
     @Override
     public void onPause() { super.onPause(); if(map != null) map.onPause(); }
 
@@ -298,7 +353,7 @@ public class MapFragment extends Fragment {
             }
 
             SharedPreferences sp = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-            String url = sp.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282") + "/qgas/public/api/station-fuel/" + pid;
+            String url = sp.getString("api_base_url", "https://qgas.site") + "/public/api/station-fuel/" + pid;
 
             Request request = new Request.Builder().url(url).post(builder.build()).build();
             client.newCall(request).enqueue(new Callback() {

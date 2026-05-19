@@ -19,7 +19,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.FileProvider;
 
 import com.bumptech.glide.Glide;
@@ -40,7 +39,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -48,8 +46,6 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.LinkedList;
-import java.util.Queue;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
@@ -58,8 +54,6 @@ import javax.net.ssl.X509TrustManager;
 import okhttp3.*;
 
 public class UpdatePriceFragment extends BottomSheetDialogFragment {
-
-    //    private final Queue<Request> updateQueue = new LinkedList<>();
     private List<JSONObject> updateQueue = new ArrayList<>();
     private static final String PREFS_NAME = "UpdatePriceQueue";
     private static final String QUEUE_KEY = "pending_updates";
@@ -75,6 +69,12 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
 
     private EditText etDieselPrem, etDieselStd, etGasPrem, etGasStd;
 
+    private static double latit;
+    private static double longd;
+
+    private static String muni = "";
+
+    private Spinner spinnerStatus;
     private static class FuelEntry {
         EditText name;
         EditText input;
@@ -145,16 +145,30 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
         etGasPrem = v.findViewById(R.id.edit_gas_premium);
         etGasStd = v.findViewById(R.id.edit_gas_standard);
 
+        spinnerStatus = v.findViewById(R.id.spinner_station_status);
+
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(requireContext(),
+                R.array.station_status_array, android.R.layout.simple_spinner_item);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerStatus.setAdapter(adapter);
+
+        spinnerStatus.setSelection(0);
+
         try {
             JSONObject station = new JSONObject(stationJson);
             title.setText(station.optString("station_name"));
             String pid = station.getString("pid");
 
-            SharedPreferences sp = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-            String base = sp.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
+            latit = station.getDouble("latitude");
+            longd = station.getDouble("longitude");
 
-            loadPhoto(station.optString("station_photo"), imgStation, base + "/qgas/storage");
-            loadPhoto(station.optString("photo"), imgCaptured, base + "/qgas/storage");
+            muni = displayMunicipalityToast(latit, longd);
+
+            SharedPreferences sp = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+            String base = sp.getString("api_base_url", "https://qgas.site");
+
+            loadPhoto(station.optString("station_photo"), imgStation, base + "/storage/app/public");
+            loadPhoto(station.optString("photo"), imgCaptured, base + "/storage/app/public");
 
             String stationPath = station.optString("station_photo");
             String capturedPath = station.optString("photo");
@@ -163,12 +177,12 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
             imgCaptured.setOnClickListener(view -> showSourceDialog(false));
 
             if (stationPath != null && !stationPath.isEmpty() && !stationPath.equals("null")) {
-                String fullUrl = base + "/qgas/storage" + (stationPath.startsWith("/") ? "" : "/") + stationPath;
+                String fullUrl = base + "/storage" + (stationPath.startsWith("/") ? "" : "/") + stationPath;
 
                 downloadAndSetUri(fullUrl, "temp_station_" + System.currentTimeMillis() + ".jpg", true);
             }
             if (capturedPath != null && !capturedPath.isEmpty() && !capturedPath.equals("null")) {
-                uriCaptured = Uri.parse(base + "/qgas/storage" + (capturedPath.startsWith("/") ? "" : "/") + capturedPath);
+                uriCaptured = Uri.parse(base + "/storage" + (capturedPath.startsWith("/") ? "" : "/") + capturedPath);
             }
 
             JSONArray fuels = new JSONArray(station.getString("data"));
@@ -408,6 +422,7 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
 
     private void uploadAll(String pid) {
         try {
+            btnSave.setEnabled(false);
             JSONArray updatedFuels = new JSONArray();
             addFuelToJson(updatedFuels, "Diesel - Premium", etDieselPrem);
             addFuelToJson(updatedFuels, "Diesel - Standard", etDieselStd);
@@ -417,6 +432,17 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
             String currentTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
             SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
             String device_id = settings.getString("device_id", "");
+            if (updatedFuels.length() == 0) {
+                JSONObject obj = new JSONObject();
+                obj.put("name", "Diesel - Standard");
+                obj.put("price", 0.00);
+                updatedFuels.put(obj);
+                JSONObject obj1 = new JSONObject();
+                obj1.put("name", "Gasoline - Standard");
+                obj1.put("price", 0.00);
+                updatedFuels.put(obj1);
+            }
+            String selectedStatus = spinnerStatus.getSelectedItem().toString();
 
             // Create a JSON object representing the task (matching HomeFragment style)
             JSONObject updateTask = new JSONObject();
@@ -424,6 +450,12 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
             updateTask.put("fuels", updatedFuels.toString());
             updateTask.put("date_captured", currentTime);
             updateTask.put("device_id", device_id);
+            updateTask.put("latitude", latit);
+            updateTask.put("longitude", longd);
+            updateTask.put("municipality", muni);
+            updateTask.put("status", selectedStatus);
+
+            // Save station path
 
             // Save paths for images if they exist
             if (uriCaptured != null) updateTask.put("captured_uri", uriCaptured.toString());
@@ -435,6 +467,7 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
 
             // Start processing
             processNextInQueue(0);
+            dismiss();
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -468,15 +501,17 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
             MultipartBody.Builder builder = new MultipartBody.Builder().setType(MultipartBody.FORM)
                     .addFormDataPart("fuels", task.getString("fuels"))
                     .addFormDataPart("date_captured", task.getString("date_captured"))
-                    .addFormDataPart("device_id", task.getString("device_id"));
+                    .addFormDataPart("device_id", task.getString("device_id"))
+                    .addFormDataPart("status", task.optString("status", "Open"))
+                    .addFormDataPart("municipality", muni);
 
             if (task.has("captured_uri")) {
                 addFile(builder, "photo", Uri.parse(task.getString("captured_uri")));
             }
 
             SharedPreferences sp = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-            String baseUrl = sp.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
-            String url = baseUrl + "/qgas/public/api/station-fuel/" + pid;
+            String baseUrl = sp.getString("api_base_url", "https://qgas.site");
+            String url = baseUrl + "/public/api/station-fuel/" + pid;
 
             Request request = new Request.Builder().url(url).post(builder.build()).build();
 
@@ -484,21 +519,28 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
                 @Override
                 public void onFailure(@NonNull Call call, @NonNull IOException e) {
                     isUploading = false;
+                    // Check if fragment is still attached before accessing activity or UI
+                    if (!isAdded()) return;
+
                     requireActivity().runOnUiThread(() -> {
                         Toast.makeText(getContext(), "Network Error. Retrying later.", Toast.LENGTH_SHORT).show();
-                        processNextInQueue(index + 1); // Skip to next or stop
+                        processNextInQueue(index + 1);
                     });
                 }
 
                 @Override
                 public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
                     isUploading = false;
+                    // Check if fragment is still attached
+                    if (!isAdded()) return;
+
                     requireActivity().runOnUiThread(() -> {
                         if (response.isSuccessful()) {
                             removeItemFromQueue(task);
-                            // Since item is removed, the next item is now at the same index
+                            Toast.makeText(getContext(), "Price updated successfully!", Toast.LENGTH_SHORT).show();
                             processNextInQueue(index);
                         } else {
+                            Toast.makeText(getContext(), "Update Failed: Server Error " + response.code(), Toast.LENGTH_SHORT).show();
                             processNextInQueue(index + 1);
                         }
                     });
@@ -649,5 +691,37 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private String displayMunicipalityToast(double lat, double lon) {
+        // Check if fragment is still attached to prevent crashes
+        if (!isAdded() || getContext() == null) return "";
+
+        android.location.Geocoder geocoder = new android.location.Geocoder(requireContext(), java.util.Locale.getDefault());
+        try {
+            List<android.location.Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+
+            if (addresses != null && !addresses.isEmpty()) {
+                android.location.Address address = addresses.get(0);
+                String municipality = address.getLocality();
+
+                if (municipality == null) {
+                    municipality = address.getSubAdminArea();
+                }
+
+                if (municipality != null) {
+                    // Ensure Toast runs on UI thread if this is called from a background thread
+                    String finalMunicipality = municipality;
+                    getActivity().runOnUiThread(() ->
+                            Toast.makeText(getContext(), "Location: " + finalMunicipality.toUpperCase(), Toast.LENGTH_SHORT).show()
+                    );
+                    return municipality.toUpperCase();
+                }
+            }
+        } catch (IOException e) {
+            Log.e("Geocoder", "Network or service unavailable", e);
+        }
+
+        return "";
     }
 }

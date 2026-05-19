@@ -1,10 +1,17 @@
 package com.example.qgas;
 
+import static androidx.core.content.ContentProviderCompat.requireContext;
+
 import android.Manifest;
+import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.WindowInsets;
@@ -17,6 +24,7 @@ import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -26,17 +34,37 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 public class MainActivity extends AppCompatActivity {
 
     private LinearLayout btnHome, btnGas, btnMap, btnSettings;
     private View activeView = null;
 
+    private final OkHttpClient client = getUnsafeOkHttpClient();
+
     private static final String PREFS_NAME = "AppConfig";
     private static final String KEY_WHITELIST_STATUS = "whitelist_status";
+
+    private static String version = "";
+    private static String latestVersionFromServer = "";
+    private static String UPDATE_URL = "";
 
     // Launcher for handling multiple runtime permissions
     private final ActivityResultLauncher<String[]> permissionLauncher =
@@ -96,25 +124,90 @@ public class MainActivity extends AppCompatActivity {
         btnGas.setOnClickListener(v -> { loadFragment(new GasFragment()); setActive(btnGas); });
         btnMap.setOnClickListener(v -> { loadFragment(new MapFragment()); setActive(btnMap); });
         btnSettings.setOnClickListener(v -> { loadFragment(new SettingsFragment()); setActive(btnSettings); });
+
+        try {
+            android.content.pm.PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            version = pInfo.versionName;
+
+
+            SharedPreferences sp = getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+            String baseUrl = sp.getString("api_base_url", "https://qgas.site");
+            String url = baseUrl + "/public/api/mobile-version";
+
+            Request request = new Request.Builder()
+                    .url(url)
+                    .addHeader("Accept", "application/json")
+                    .get()
+                    .build();
+
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                    Log.e("Response","Error :" + e.getMessage());
+                }
+
+                @Override
+                public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                    try (Response resp = response) {
+                        if (resp.isSuccessful()) {
+                            // Move the Toast to the UI Thread
+                            runOnUiThread(() -> {
+                                Toast.makeText(MainActivity.this, "Server Connected", Toast.LENGTH_SHORT).show();
+                            });
+
+                            try {
+                                String responseData = resp.body().string();
+                                JSONObject json = new JSONObject(responseData);
+                                JSONArray ver = json.getJSONArray("data");
+                                latestVersionFromServer = ver.getJSONObject(0).getString("version");
+                                UPDATE_URL = ver.getJSONObject(0).getString("link");
+
+                                runOnUiThread(() -> checkForUpdate(latestVersionFromServer));
+
+                            } catch (Exception e) {
+                                Log.e("Response", "JSON Parsing error", e);
+                            }
+                        } else {
+                            Log.e("Response", "Server Error: " + resp.code());
+                        }
+                    }
+                }
+            });
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            e.printStackTrace();
+        }
     }
 
-    private void checkAndRequestPermissions() {
-        // Define the permissions needed for gas station OCR and mapping
-        String[] permissions = {
-                Manifest.permission.CAMERA,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-        };
 
+    private void checkAndRequestPermissions() {
+        // Define the permissions needed for gas station OCR, mapping, and updates
         List<String> listPermissionsNeeded = new ArrayList<>();
-        for (String permission : permissions) {
+
+        // Existing permissions from your manifest
+        listPermissionsNeeded.add(Manifest.permission.CAMERA);
+        listPermissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        listPermissionsNeeded.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+
+        // Handle Storage Permissions based on Android Version
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ requires specific media permissions instead of generic READ_EXTERNAL_STORAGE
+            listPermissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
+        } else {
+            // For Android 12 and below, use the permissions declared in your manifest
+            listPermissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            // Note: WRITE_EXTERNAL_STORAGE is often required for older update/download flows
+            listPermissionsNeeded.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
+
+        List<String> remainingPermissions = new ArrayList<>();
+        for (String permission : listPermissionsNeeded) {
             if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                listPermissionsNeeded.add(permission);
+                remainingPermissions.add(permission);
             }
         }
 
-        if (!listPermissionsNeeded.isEmpty()) {
-            permissionLauncher.launch(listPermissionsNeeded.toArray(new String[0]));
+        if (!remainingPermissions.isEmpty()) {
+            permissionLauncher.launch(remainingPermissions.toArray(new String[0]));
         }
     }
 
@@ -208,5 +301,66 @@ public class MainActivity extends AppCompatActivity {
     public void navigateToMap() {
         loadFragment(new MapFragment());
         setActive(btnMap);
+    }
+
+    private void checkForUpdate(String latestVersion) {
+        try {
+            double currentVer = Double.parseDouble(version);
+            double newVer = Double.parseDouble(latestVersion);
+
+            if (newVer > currentVer) {
+                showUpdateDialog();
+            }
+        } catch (NumberFormatException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void showUpdateDialog() {
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Update Available")
+                .setMessage("The Version you have is old version do you want to update your app?")
+                .setCancelable(false) // Prevents closing by clicking outside
+                .setPositiveButton("Yes", (d, which) -> {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(UPDATE_URL));
+                    startActivity(intent);
+                    finish(); // Close app so they must install update
+                })
+                .setNegativeButton("No", (d, which) -> {
+                    finishAffinity(); // Shutdown the app entirely
+                    System.exit(0);
+                })
+                .create();
+
+        dialog.show();
+    }
+
+
+
+    private OkHttpClient getUnsafeOkHttpClient() {
+        try {
+            final TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+                        @Override
+                        public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
+                        @Override
+                        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                            return new java.security.cert.X509Certificate[]{};
+                        }
+                    }
+            };
+
+            final SSLContext sslContext = SSLContext.getInstance("SSL");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            return new OkHttpClient.Builder()
+                    .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
+                    .hostnameVerifier((hostname, session) -> true)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

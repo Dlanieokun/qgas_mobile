@@ -77,6 +77,12 @@ public class GasFragment extends Fragment {
     private FusedLocationProviderClient fusedLocationClient;
     private final OkHttpClient client = UnsafeOkHttpHelper.getUnsafeOkHttpClient();
 
+    private static String mun = "";
+
+    private static final String QUEUE_KEY = "pending_updates";
+
+    private static final String PREFS_NAME = "UpdatePriceQueue";
+
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
@@ -234,8 +240,41 @@ public class GasFragment extends Fragment {
                         if (location != null) {
                             etLat.setText(String.valueOf(location.getLatitude()));
                             etLong.setText(String.valueOf(location.getLongitude()));
+                            double lat = location.getLatitude();
+                            double lon = location.getLongitude();
+                            displayMunicipalityToast(lat, lon);
                         }
                     });
+        }
+    }
+
+    private void displayMunicipalityToast(double lat, double lon) {
+        android.location.Geocoder geocoder = new android.location.Geocoder(requireContext(), java.util.Locale.getDefault());
+        try {
+            // Get address from coordinates (max 1 result)
+            List<android.location.Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+
+            if (addresses != null && !addresses.isEmpty()) {
+                android.location.Address address = addresses.get(0);
+
+                // Locality usually corresponds to the Municipality or City
+                String municipality = address.getLocality();
+
+                // Fallback to sub-admin area if locality is null
+                if (municipality == null) {
+                    municipality = address.getSubAdminArea();
+                }
+
+                if (municipality != null) {
+                    mun = municipality;
+                    Toast.makeText(getContext(), "Location: " + municipality.toUpperCase(), Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(getContext(), "Location found, but municipality name unavailable", Toast.LENGTH_SHORT).show();
+                }
+            }
+        } catch (IOException e) {
+            Log.e("Geocoder", "Network or service unavailable", e);
+            // Don't toast errors here to avoid annoying the user if they have poor signal
         }
     }
 
@@ -385,13 +424,13 @@ public class GasFragment extends Fragment {
         if (allGasProcessed.isEmpty()) {
             tvResults.setText("No fuel data detected.");
             btnSave.setVisibility(View.GONE);
-            btnCaptureStation.setVisibility(View.GONE);
+            btnCaptureStation.setVisibility(View.VISIBLE);
             Toast.makeText(getContext(), "No fuel data detected.", Toast.LENGTH_SHORT).show();
+            gasDataList.clear();
             etDieselPremium.setText("0.00");
             etDieselStandard.setText("0.00");
             etGasPremium.setText("0.00");
             etGasStandard.setText("0.00");
-            resetUI();
         } else {
             tvResults.setText("Success! Now take a photo of the station storefront.");
             btnCaptureStation.setVisibility(View.VISIBLE);
@@ -415,10 +454,11 @@ public class GasFragment extends Fragment {
     }
 
     private void saveGasData() {
-        if (gasDataList.isEmpty()) {
-            Toast.makeText(getContext(), "Nothing to scan.", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        btnSave.setEnabled(false);
+//        if (gasDataList.isEmpty()) {
+//            Toast.makeText(getContext(), "Nothing to scan.", Toast.LENGTH_SHORT).show();
+//            return;
+//        }
 
         try {
             boolean required = false;
@@ -432,6 +472,7 @@ public class GasFragment extends Fragment {
             String stationPath = (stationPhotoFile != null) ? stationPhotoFile.getAbsolutePath() : "";
 
             JSONObject scanJson = new JSONObject();
+            scanJson.put("municipality", mun);
             scanJson.put("station", station);
             scanJson.put("latitude", lat);
             scanJson.put("longitude", lon);
@@ -508,10 +549,10 @@ public class GasFragment extends Fragment {
             if (g_standard != 0.00) {
                 if (g_standard > 200.00) {
                     required = true;
-                    text_price = "high";
+                    text_price = "too high";
                 } else if (g_standard < 50.00) {
                     required = true;
-                    text_price = "low";
+                    text_price = "too low";
                 } else {
                     JSONObject item = new JSONObject();
                     item.put("name", "Gasoline - Standard");
@@ -519,8 +560,21 @@ public class GasFragment extends Fragment {
                     gasArray.put(item);
                 }
             }
+
+            if (g_premium == 0.00 && g_standard == 0.00 && d_premium == 0.00 && d_standard == 0.00){
+                JSONObject item = new JSONObject();
+                item.put("name", "Diesel - Standard");
+                item.put("price", 0.00);
+                gasArray.put(item);
+                JSONObject items = new JSONObject();
+                items.put("name", "Gasoline - Standard");
+                items.put("price", 0.00);
+                gasArray.put(items);
+            }
+
+
             if (required){
-                Toast.makeText(getContext(), "Gas prices are too " + text_price, Toast.LENGTH_LONG).show();
+                Toast.makeText(getContext(), "Gas prices are " + text_price, Toast.LENGTH_LONG).show();
             }else if (lat == 0 || lon == 0) {
                 Toast.makeText(getContext(), "the location is not yet set", Toast.LENGTH_LONG).show();
             } else {
@@ -535,8 +589,8 @@ public class GasFragment extends Fragment {
     }
     private void checkNearbyAndSave(double lat, double lon, JSONObject scanJson) {
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
-        String apiUrl = settings.getString("api_base_url", "https://services.leyteprovince.gov.ph:8282");
-        String url = apiUrl + "/qgas/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=100";
+        String apiUrl = settings.getString("api_base_url", "https://qgas.site");
+        String url = apiUrl + "/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=50";
 
         Request request = new Request.Builder()
                 .url(url)
@@ -556,34 +610,70 @@ public class GasFragment extends Fragment {
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
                 try {
                     boolean stationExists = false;
+                    JSONArray stations = new JSONArray();
                     if (response.isSuccessful() && response.body() != null) {
                         JSONObject json = new JSONObject(response.body().string());
-                        JSONArray stations = json.optJSONArray("data");
+                        stations = json.optJSONArray("data");
                         stationExists = (stations != null && stations.length() > 0);
                     }
 
                     final boolean finalExists = stationExists;
+                    final JSONArray finalStations = stations;
                     requireActivity().runOnUiThread(() -> {
                         if (finalExists) {
                             // Create the Analog/Dialog choice
-                            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                                    .setTitle("Nearby Station Detected")
-                                    .setMessage("Station exists nearby! Do you want to continue saving?")
-                                    .setPositiveButton("Yes", (dialog, which) -> {
-                                        try {
-                                            savequeue(scanJson);
-                                        } catch (JSONException e) {
-                                            e.printStackTrace();
-                                        }
-                                    })
-                                    .setNegativeButton("No", (dialog, which) -> {
-                                        dialog.dismiss();
-                                        // Redirect to Map via MainActivity
-                                        if (getActivity() instanceof MainActivity) {
-                                            ((MainActivity) getActivity()).navigateToMap();
-                                        }
-                                    })
-                                    .show();
+//                            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+//                                    .setTitle("Nearby Station Detected")
+//                                    .setMessage("Station exists nearby! Do you want to continue saving?")
+//                                    .setPositiveButton("Yes", (dialog, which) -> {
+//                                        try {
+//                                            savequeue(scanJson);
+//                                        } catch (JSONException e) {
+//                                            e.printStackTrace();
+//                                        }
+//                                    })
+//                                    .setNegativeButton("No", (dialog, which) -> {
+//                                        dialog.dismiss();
+//                                        // Redirect to Map via MainActivity
+//                                        if (getActivity() instanceof MainActivity) {
+//                                            ((MainActivity) getActivity()).navigateToMap();
+//                                        }
+//                                    })
+//                                    .show();
+
+                            if (finalStations.length() == 1) {
+                                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                                        .setTitle("1 Station Nearby Detected")
+                                        .setMessage("Station exists nearby! Do you want to update the existing station?")
+                                        .setPositiveButton("Yes", (dialog, which) -> {
+                                            try {
+                                                JSONObject specificStation = finalStations.getJSONObject(0);
+                                                updateQueue(scanJson, specificStation);
+                                            } catch (Exception e) {
+                                                e.printStackTrace();
+                                            }
+                                        })
+                                        .setNegativeButton("No", (dialog, which) -> {
+                                            dialog.dismiss();
+                                            // Redirect to Map via MainActivity
+                                            if (getActivity() instanceof MainActivity) {
+                                                ((MainActivity) getActivity()).navigateToMap();
+                                            }
+                                        })
+                                        .show();
+                            } else {
+                                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                                        .setTitle("More Station Nearby Detected")
+                                        .setMessage("Go to Update View to update the existing station!")
+                                        .setPositiveButton("Okay", (dialog, which) -> {
+                                            dialog.dismiss();
+                                            // Redirect to Map via MainActivity
+                                            if (getActivity() instanceof MainActivity) {
+                                                ((MainActivity) getActivity()).navigateToMap();
+                                            }
+                                        })
+                                        .show();
+                            }
                         } else {
                             // No station nearby, save automatically
                             try {
@@ -613,6 +703,53 @@ public class GasFragment extends Fragment {
         if (getActivity() instanceof MainActivity) {
             ((MainActivity) getActivity()).navigateToHome();
         }
+    }
+
+    private void updateQueue(JSONObject scan, JSONObject station) {
+        try {
+            SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+            String device_id = settings.getString("device_id", "");
+
+            JSONObject updateTask = new JSONObject();
+
+            // 1. Get the PID from the station object (use getString or optString)
+            updateTask.put("pid", station.optString("pid", ""));
+
+            // 2. Get the fuels array (was stored as an array, not a string)
+            updateTask.put("fuels", scan.getJSONArray("prices").toString());
+
+            // 3. Get metadata from the scan object
+            updateTask.put("date_captured", scan.getString("timestamp"));
+            updateTask.put("device_id", device_id);
+            updateTask.put("municipality", mun);
+
+            updateTask.put("latitude", station.getString("latitude"));
+            updateTask.put("longitude", station.getString("longitude"));
+            updateTask.put("captured_update_uri", scan.getString("gasImagePath"));
+
+            // Add to the persistent update queue
+            addToUpdateQueue(updateTask);
+        } catch (JSONException e) {
+            Log.e("UpdateQueue", "JSON Error: " + e.getMessage());
+            Toast.makeText(getContext(), "Error formatting update data", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void addToUpdateQueue(JSONObject task) {
+        SharedPreferences prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        try {
+            JSONArray currentQueue = new JSONArray(prefs.getString(QUEUE_KEY, "[]"));
+            currentQueue.put(task);
+            prefs.edit().putString(QUEUE_KEY, currentQueue.toString()).apply();
+
+            Toast.makeText(getContext(), "Saved to Update Queue!", Toast.LENGTH_LONG).show();
+
+            resetUI();
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).navigateToHome();
+            }
+
+        } catch (JSONException e) { e.printStackTrace(); }
     }
 
     private void resetUI() {
@@ -757,7 +894,7 @@ public class GasFragment extends Fragment {
             for (Text.Line line : block.getLines()) {
                 String text = line.getText().trim();
                 String lowerLine = text.toLowerCase();
-//                Log.e("analyzeGasText3", "analyzeGasText3: " + lowerLine);
+
                 if (lowerLine.contains("reg") || lowerLine.contains("unl") ||
                         lowerLine.contains("pre") || lowerLine.contains("die") ||
                         lowerLine.contains("plus") || lowerLine.contains("plat") ||
@@ -765,21 +902,25 @@ public class GasFragment extends Fragment {
                         lowerLine.contains("xcs") || lowerLine.contains("blaz") ||
                         lowerLine.contains("xtra") || lowerLine.contains("ext") ||
                         lowerLine.contains("pul") || lowerLine.contains("uni") ||
-                        lowerLine.contains("pow") || lowerLine.contains("tur") || lowerLine.contains("reg")) {
-//                    temp.add(line);
+                        lowerLine.contains("pow") || lowerLine.contains("tur")) {
 
                     String tfn = text.replaceAll("\\d+", "").trim();
                     String priceStr = text.replaceAll("[^\\d.]", "");
-                    if (!priceStr.isEmpty()) {
-                        detectedGases.add(new Gas(tfn, Double.parseDouble(priceStr)));
+
+                    // FIX: Check if the string is empty OR just a decimal point
+                    if (!priceStr.isEmpty() && !priceStr.equals(".")) {
+                        try {
+                            detectedGases.add(new Gas(tfn, Double.parseDouble(priceStr)));
+                        } catch (NumberFormatException e) {
+                            // Log it or handle it gracefully
+                            Log.e("OCR_FIX", "Could not parse: " + priceStr);
+                        }
                     } else {
                         detectedGases.add(new Gas(tfn, 0.00));
                     }
                 }
             }
         }
-
-
         return detectedGases;
     }
 }
