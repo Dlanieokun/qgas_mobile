@@ -105,6 +105,7 @@
             android:layout_marginBottom="12dp" />
 
             <TextView
+                android:id="@+id/edit_diesel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Diesel:"
@@ -114,6 +115,7 @@
                 android:layout_marginTop="16dp"/>
 
             <LinearLayout
+                android:id="@+id/edit_diesel_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -157,6 +159,7 @@
             </LinearLayout>
 
             <TextView
+                android:id="@+id/edit_gasoline"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Gasoline:"
@@ -166,6 +169,7 @@
                 android:layout_marginTop="16dp"/>
 
             <LinearLayout
+                android:id="@+id/edit_gasoline_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -204,6 +208,34 @@
                         android:text="0.00"/>
                 </LinearLayout>
             </LinearLayout>
+            <TextView
+                android:id="@+id/edit_lpg"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="LPG List:"
+                android:textStyle="bold"
+                android:textColor="#3F51B5"
+                android:textSize="24sp"
+                android:layout_marginTop="16dp"/>
+
+            <!-- Dynamic container where new LPG rows will be injected -->
+            <LinearLayout
+                android:id="@+id/lpg_list_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp" />
+
+            <!-- Button to add new LPG items dynamically -->
+            <Button
+                android:id="@+id/btn_add_lpg"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+ Add LPG"
+                android:backgroundTint="#3F51B5"
+                android:textColor="@android:color/white"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp"/>
         </LinearLayout>
 
         <TextView

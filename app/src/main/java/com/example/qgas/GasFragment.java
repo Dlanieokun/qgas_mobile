@@ -15,15 +15,19 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.fragment.app.Fragment;
@@ -60,9 +64,10 @@ import okhttp3.Response;
 public class GasFragment extends Fragment {
 
     private TextView tvResults;
-    private EditText etStation, etLat, etLong;
+    private EditText etLat, etLong;
     private ImageView ivPreview, ivStationPhoto;
     private Button btnCapture, btnSave, btnCaptureStation, btnAddItem;
+    private Button btnToggleFuel, btnToggleLpg; // Added toggle references
 
     // Persistent file references
     private File photoFile, stationPhotoFile;
@@ -82,6 +87,23 @@ public class GasFragment extends Fragment {
     private static final String QUEUE_KEY = "pending_updates";
 
     private static final String PREFS_NAME = "UpdatePriceQueue";
+
+    private String category = "Fuel";
+    private CardView cvPrices;
+
+    private View llFuelInputs, llLpgInputs;
+    private LinearLayout llLpgListContainer;
+    private EditText etLpgPriceInput;
+    private Button btnAddLpgItem;
+
+    // List to hold the LPG Gas objects explicitly
+    private ArrayList<Gas> lpgDataList = new ArrayList<>();
+
+    private AutoCompleteTextView etStation, etLpgNameInput; // Changed from EditText
+    private ArrayList<String> stationNames = new ArrayList<>();
+    private ArrayAdapter<String> stationAdapter;
+    private ArrayList<String> lpgBrandNames = new ArrayList<>();
+    private ArrayAdapter<String> lpgBrandAdapter;
 
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -176,11 +198,73 @@ public class GasFragment extends Fragment {
         etGasPremium = view.findViewById(R.id.et_gas_premium);
         etGasStandard = view.findViewById(R.id.et_gas_standard);
         cvStationPreview = view.findViewById(R.id.cv_station_preview);
+        cvPrices = view.findViewById(R.id.cv_prices);
+        llFuelInputs = view.findViewById(R.id.ll_fuel_inputs);
+        llLpgInputs = view.findViewById(R.id.ll_lpg_inputs);
+
+        llLpgListContainer = view.findViewById(R.id.ll_lpg_list_container);
+        etLpgNameInput = view.findViewById(R.id.et_lpg_name_input);
+        fetchLPGList();
+        // Set up the adapter
+        lpgBrandAdapter = new ArrayAdapter<>(requireContext(),
+                android.R.layout.simple_spinner_dropdown_item, lpgBrandNames);
+        etLpgNameInput.setAdapter(lpgBrandAdapter);
+
+        // Make the dropdown appear as soon as the user clicks the field
+        etLpgNameInput.setOnClickListener(v -> {
+            etLpgNameInput.showDropDown();
+        });
+
+        etLpgPriceInput = view.findViewById(R.id.et_lpg_price_input);
+        btnAddLpgItem = view.findViewById(R.id.btn_add_lpg_item);
+
+        // Find view inputs for the toggle buttons
+        btnToggleFuel = view.findViewById(R.id.btn_toggle_fuel);
+        btnToggleLpg = view.findViewById(R.id.btn_toggle_lpg);
 
         btnSave.setVisibility(View.GONE);
         btnCaptureStation.setVisibility(View.GONE);
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity());
+
+        stationAdapter = new ArrayAdapter<>(requireContext(),
+                android.R.layout.simple_spinner_dropdown_item, stationNames);
+        etStation.setAdapter(stationAdapter);
+
+// Load existing list from SharedPreferences if available
+        loadStationListFromPrefs();
+
+// Fetch fresh data from API
+        fetchStationList();
+
+        // Simple Toggle behavior visually switching state colors
+        btnToggleFuel.setOnClickListener(v -> {
+            btnToggleFuel.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2196F3)); // Blue
+            btnToggleLpg.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF757575));  // Grey
+
+            btnCapture.setText("Take Picture of Fuel Prices");
+            category = "Fuel";
+
+            // Show Fuel layout, hide LPG layout, and ensure CardView is visible
+            cvPrices.setVisibility(View.VISIBLE);
+            llFuelInputs.setVisibility(View.VISIBLE);
+            llLpgInputs.setVisibility(View.GONE);
+            resetUI();
+        });
+
+        btnToggleLpg.setOnClickListener(v -> {
+            btnToggleLpg.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2196F3));
+            btnToggleFuel.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF757575));
+
+            btnCapture.setText("Take Picture of LPG Prices");
+            category = "LPG";
+
+            cvPrices.setVisibility(View.VISIBLE);
+            llLpgInputs.setVisibility(View.VISIBLE);
+            llFuelInputs.setVisibility(View.GONE);
+
+            resetUI();
+        });
 
         btnCapture.setOnClickListener(v -> {
             isStationPhoto = false;
@@ -192,9 +276,196 @@ public class GasFragment extends Fragment {
             startCamera();
         });
 
+        etStation.setOnClickListener(v -> {
+            etStation.showDropDown();
+        });
+
         btnSave.setOnClickListener(v -> saveGasData());
 
+        btnAddLpgItem.setOnClickListener(v -> {
+            String name = etLpgNameInput.getText().toString().trim();
+            String priceStr = etLpgPriceInput.getText().toString().trim();
+
+            if (name.isEmpty()) {
+                Toast.makeText(getContext(), "Please enter an LPG brand name", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            try {
+                double price = Double.parseDouble(priceStr);
+
+                // 1. Create and track Gas model
+                Gas newLpg = new Gas(name, price);
+                lpgDataList.add(newLpg);
+
+                // 2. Programmatically generate a row container (Horizontal layout)
+                LinearLayout rowLayout = new LinearLayout(getContext());
+                rowLayout.setLayoutParams(new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT));
+                rowLayout.setOrientation(LinearLayout.HORIZONTAL);
+                rowLayout.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                rowLayout.setPadding(0, 8, 0, 8);
+
+                // 3. Create the text descriptor view
+                TextView rowTextView = new TextView(getContext());
+                LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f); // Takes up remaining space
+                rowTextView.setLayoutParams(textParams);
+                rowTextView.setTextSize(16);
+                rowTextView.setTextColor(0xFF212121); // Dark Gray
+                rowTextView.setText("name : " + name + "   price: " + String.format("%.2f", price));
+
+                // 4. Create the Delete button
+                Button btnDelete = new Button(getContext(), null, android.R.attr.borderlessButtonStyle);
+                LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                btnDelete.setLayoutParams(btnParams);
+                btnDelete.setText("Delete");
+                btnDelete.setTextColor(0xFFD32F2F); // Material Red Color
+
+                // FIX: Use setAllCaps instead of textAllCaps
+                btnDelete.setAllCaps(false);
+
+                // 5. Setup the click behavior for the Delete button
+                btnDelete.setOnClickListener(vDelete -> {
+                    // Remove the model from data tracking array list
+                    lpgDataList.remove(newLpg);
+                    // Remove this row layout visually from the container view
+                    llLpgListContainer.removeView(rowLayout);
+
+                    // Update Save button visibility contextually if everything was deleted
+                    if (lpgDataList.isEmpty()) {
+                        btnSave.setVisibility(View.GONE);
+                    }
+                });
+
+                // 6. Build the structural view hierarchy
+                rowLayout.addView(rowTextView);
+                rowLayout.addView(btnDelete);
+                llLpgListContainer.addView(rowLayout);
+
+                // 7. Clear inputs for next entry
+                etLpgNameInput.setText("");
+                etLpgPriceInput.setText("0.00");
+
+                // Ensure save button acts properly if entries exist
+                btnSave.setVisibility(View.VISIBLE);
+
+            } catch (NumberFormatException e) {
+                Toast.makeText(getContext(), "Invalid price entry", Toast.LENGTH_SHORT).show();
+            }
+        });
+
         return view;
+    }
+
+    private void fetchStationList() {
+        SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+        String apiUrl = settings.getString("api_base_url", "https://qgas.site");
+        String url = apiUrl + "/public/api/station/list"; // API endpoint from source 3
+
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("Accept", "application/json")
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                Log.e("API_ERROR", "Failed to fetch stations", e);
+            }
+
+            @Override
+            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                if (response.isSuccessful() && response.body() != null) {
+                    try {
+                        JSONObject json = new JSONObject(response.body().string());
+                        JSONArray data = json.getJSONArray("data");
+
+                        stationNames.clear();
+                        for (int i = 0; i < data.length(); i++) {
+                            stationNames.add(data.getJSONObject(i).getString("name"));
+                        }
+
+                        // Save to SharedPreferences as "StationList"
+                        saveStationListToPrefs(stationNames);
+
+                        requireActivity().runOnUiThread(() -> {
+                            stationAdapter.notifyDataSetChanged();
+                        });
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        });
+    }
+
+    private void fetchLPGList() {
+        SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
+        String apiUrl = settings.getString("api_base_url", "https://qgas.site");
+        String url = apiUrl + "/public/api/station-fuel/stations-and-fuels?station_category=LPG"; // API endpoint from source 3
+
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("Accept", "application/json")
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                Log.e("API_ERROR", "Failed to fetch stations", e);
+            }
+
+            @Override
+            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                if (response.isSuccessful() && response.body() != null) {
+                    try {
+                        JSONObject json = new JSONObject(response.body().string());
+                        JSONObject dataObject = json.getJSONObject("data");
+                        JSONArray fuelsArray = dataObject.getJSONArray("fuels");
+
+                        lpgBrandNames.clear();
+                        for (int i = 0; i < fuelsArray.length(); i++) {
+                            String rawFuelString = fuelsArray.getString(i);
+                            String cleanLpgName = rawFuelString;
+                            if (rawFuelString.contains("LPG - ")) {
+                                cleanLpgName = rawFuelString.split("LPG - ")[1];
+                            }
+                            lpgBrandNames.add(cleanLpgName);
+                        }
+
+                        requireActivity().runOnUiThread(() -> {
+                            stationAdapter.notifyDataSetChanged();
+                        });
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        });
+    }
+
+    private void saveStationListToPrefs(ArrayList<String> list) {
+        SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", Context.MODE_PRIVATE);
+        // Converting list to a single string (simple implementation)
+        String joinedNames = String.join(",", list);
+        prefs.edit().putString("StationList", joinedNames).apply();
+    }
+
+    private void loadStationListFromPrefs() {
+        SharedPreferences prefs = requireContext().getSharedPreferences("GasQueue", Context.MODE_PRIVATE);
+        String savedData = prefs.getString("StationList", "");
+        if (!savedData.isEmpty()) {
+            String[] names = savedData.split(",");
+            stationNames.clear();
+            for (String name : names) {
+                stationNames.add(name);
+            }
+            stationAdapter.notifyDataSetChanged();
+        }
     }
 
     private void startCamera() {
@@ -461,6 +732,7 @@ public class GasFragment extends Fragment {
 //        }
 
         try {
+
             boolean required = false;
             String text_price = "";
             String station = etStation.getText().toString();
@@ -495,83 +767,110 @@ public class GasFragment extends Fragment {
 //                    text_price = "low";
 //                }
 //            }
-            double d_premium = Double.parseDouble(etDieselPremium.getText().toString());
-            double d_standard = Double.parseDouble(etDieselStandard.getText().toString());
-            double g_premium = Double.parseDouble(etGasPremium.getText().toString());
-            double g_standard = Double.parseDouble(etGasStandard.getText().toString());
 
 
-            if (d_premium != 0.00){
-                if (d_premium > 200.00){
-                    required = true;
-                    text_price = "high";
-                } else if (d_premium < 50.00) {
-                    required = true;
-                    text_price = "low";
-                } else {
-                    JSONObject item = new JSONObject();
-                    item.put("name", "Diesel - Premium");
-                    item.put("price", d_premium);
-                    gasArray.put(item);
+            if(category.equals("Fuel")){
+                double d_premium = Double.parseDouble(etDieselPremium.getText().toString());
+                double d_standard = Double.parseDouble(etDieselStandard.getText().toString());
+                double g_premium = Double.parseDouble(etGasPremium.getText().toString());
+                double g_standard = Double.parseDouble(etGasStandard.getText().toString());
+
+
+                if (d_premium != 0.00){
+                    if (d_premium > 200.00){
+                        required = true;
+                        text_price = "high";
+                    } else if (d_premium < 50.00) {
+                        required = true;
+                        text_price = "low";
+                    } else {
+                        JSONObject item = new JSONObject();
+                        item.put("name", "Diesel - Premium");
+                        item.put("price", d_premium);
+                        gasArray.put(item);
+                    }
                 }
-            }
 
-            if (d_standard != 0.00){
-                if (d_standard > 200.00){
-                    required = true;
-                    text_price = "high";
-                } else if (d_standard < 50.00) {
-                    required = true;
-                    text_price = "low";
-                } else {
+                if (d_standard != 0.00){
+                    if (d_standard > 200.00){
+                        required = true;
+                        text_price = "high";
+                    } else if (d_standard < 50.00) {
+                        required = true;
+                        text_price = "low";
+                    } else {
+                        JSONObject item = new JSONObject();
+                        item.put("name", "Diesel - Standard");
+                        item.put("price", d_standard);
+                        gasArray.put(item);
+                    }
+                }
+
+                if (g_premium != 0.00) {
+                    if (g_premium > 200.00) {
+                        required = true;
+                        text_price = "high";
+                    } else if (g_premium < 50.00) {
+                        required = true;
+                        text_price = "low";
+                    }else {
+                        JSONObject item = new JSONObject();
+                        item.put("name", "Gasoline - Premium");
+                        item.put("price", g_premium);
+                        gasArray.put(item);
+                    }
+                }
+
+                if (g_standard != 0.00) {
+                    if (g_standard > 200.00) {
+                        required = true;
+                        text_price = "too high";
+                    } else if (g_standard < 50.00) {
+                        required = true;
+                        text_price = "too low";
+                    } else {
+                        JSONObject item = new JSONObject();
+                        item.put("name", "Gasoline - Standard");
+                        item.put("price", g_standard);
+                        gasArray.put(item);
+                    }
+                }
+
+                if (g_premium == 0.00 && g_standard == 0.00 && d_premium == 0.00 && d_standard == 0.00){
                     JSONObject item = new JSONObject();
                     item.put("name", "Diesel - Standard");
-                    item.put("price", d_standard);
+                    item.put("price", 0.00);
+                    gasArray.put(item);
+                    JSONObject items = new JSONObject();
+                    items.put("name", "Gasoline - Standard");
+                    items.put("price", 0.00);
+                    gasArray.put(items);
+                }
+
+
+            } else if (category.equals("LPG")) {
+                // HANDLE LPG DATA RETRIEVAL HERE
+                if (lpgDataList.isEmpty()) {
+                    Toast.makeText(getContext(), "Please add at least one LPG entry first.", Toast.LENGTH_SHORT).show();
+                    btnSave.setEnabled(true);
+                    return;
+                }
+
+                for (Gas lpg : lpgDataList) {
+                    JSONObject item = new JSONObject();
+                    item.put("name", ("LPG - "+lpg.getName()));
+                    item.put("price", lpg.getPrice());
                     gasArray.put(item);
                 }
-            }
 
-            if (g_premium != 0.00) {
-                if (g_premium > 200.00) {
-                    required = true;
-                    text_price = "high";
-                } else if (g_premium < 50.00) {
-                    required = true;
-                    text_price = "low";
+                if (gasArray.length() == 0) {
+                    Toast.makeText(getContext(), "Please add at least one LPG entry first.", Toast.LENGTH_SHORT).show();
+                    btnSave.setEnabled(true);
+                    return;
                 }else {
-                    JSONObject item = new JSONObject();
-                    item.put("name", "Gasoline - Premium");
-                    item.put("price", g_premium);
-                    gasArray.put(item);
+                    required = false;
                 }
             }
-
-            if (g_standard != 0.00) {
-                if (g_standard > 200.00) {
-                    required = true;
-                    text_price = "too high";
-                } else if (g_standard < 50.00) {
-                    required = true;
-                    text_price = "too low";
-                } else {
-                    JSONObject item = new JSONObject();
-                    item.put("name", "Gasoline - Standard");
-                    item.put("price", g_standard);
-                    gasArray.put(item);
-                }
-            }
-
-            if (g_premium == 0.00 && g_standard == 0.00 && d_premium == 0.00 && d_standard == 0.00){
-                JSONObject item = new JSONObject();
-                item.put("name", "Diesel - Standard");
-                item.put("price", 0.00);
-                gasArray.put(item);
-                JSONObject items = new JSONObject();
-                items.put("name", "Gasoline - Standard");
-                items.put("price", 0.00);
-                gasArray.put(items);
-            }
-
 
             if (required){
                 Toast.makeText(getContext(), "Gas prices are " + text_price, Toast.LENGTH_LONG).show();
@@ -579,8 +878,8 @@ public class GasFragment extends Fragment {
                 Toast.makeText(getContext(), "the location is not yet set", Toast.LENGTH_LONG).show();
             } else {
                 scanJson.put("prices", gasArray);
+                scanJson.put("station_category", category);
                 checkNearbyAndSave(lat, lon, scanJson);
-
             }
 
         } catch (Exception e) {
@@ -590,7 +889,7 @@ public class GasFragment extends Fragment {
     private void checkNearbyAndSave(double lat, double lon, JSONObject scanJson) {
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
         String apiUrl = settings.getString("api_base_url", "https://qgas.site");
-        String url = apiUrl + "/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=50";
+        String url = apiUrl + "/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=50&station_category=" + category;
 
         Request request = new Request.Builder()
                 .url(url)
@@ -768,6 +1067,10 @@ public class GasFragment extends Fragment {
         btnSave.setVisibility(View.GONE);
         photoFile = null;
         stationPhotoFile = null;
+        lpgDataList.clear();
+        llLpgListContainer.removeAllViews();
+        etLpgNameInput.setText("");
+        etLpgPriceInput.setText("0.00");
     }
 
 

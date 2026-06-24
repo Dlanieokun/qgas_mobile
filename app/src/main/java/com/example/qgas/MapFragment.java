@@ -29,6 +29,7 @@ import androidx.fragment.app.Fragment;
 import com.bumptech.glide.Glide;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.textfield.TextInputEditText;
 
 import org.json.JSONArray;
@@ -65,6 +66,9 @@ public class MapFragment extends Fragment {
     private final OkHttpClient client = UnsafeOkHttpHelper.getUnsafeOkHttpClient();
     private TextInputEditText etRadius;
 
+    // Track the currently selected category (Defaults to "Fuel")
+    private String selectedCategory = "Fuel";
+
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -84,10 +88,24 @@ public class MapFragment extends Fragment {
 
         etRadius = view.findViewById(R.id.et_radius);
 
-        // Optional: Refresh map when user changes radius
+        // Optional: Refresh map when user changes radius via keyboard action
         etRadius.setOnEditorActionListener((v, actionId, event) -> {
             refreshLocationAndStations();
             return true;
+        });
+
+        // Initialize and handle Switch Toggle Layout selection
+        MaterialButtonToggleGroup toggleGroup = view.findViewById(R.id.toggle_group_fuel_lpg);
+        toggleGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (isChecked) {
+                if (checkedId == R.id.btn_fuel) {
+                    selectedCategory = "Fuel";
+                } else if (checkedId == R.id.btn_lpg) {
+                    selectedCategory = "LPG";
+                }
+                // Automatically reload data dynamically based on selection
+                refreshLocationAndStations();
+            }
         });
 
         return view;
@@ -118,24 +136,18 @@ public class MapFragment extends Fragment {
     }
 
     private void refreshLocationAndStations() {
-        // 1. Check permissions again to ensure safety
         if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 100);
             return;
         }
 
-        // 2. Show a small feedback to the user
-        Toast.makeText(requireContext(), "Refreshing nearby stations...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(requireContext(), "Refreshing filters...", Toast.LENGTH_SHORT).show();
 
-        // 3. Get fresh location and then fetch stations
         fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
             if (location != null && isAdded()) {
-                // Update map center to current position
                 GeoPoint currentPoint = new GeoPoint(location.getLatitude(), location.getLongitude());
                 map.getController().animateTo(currentPoint);
-
-                // Fetch stations with the updated radius from the EditText
                 fetchNearbyStations(location.getLatitude(), location.getLongitude());
             } else {
                 Toast.makeText(requireContext(), "Unable to determine location.", Toast.LENGTH_SHORT).show();
@@ -160,7 +172,12 @@ public class MapFragment extends Fragment {
 
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
         String apiUrl = settings.getString("api_base_url", "https://qgas.site");
-        String url = apiUrl + "/public/api/station-fuel/nearby-station?latitude=" + lat + "&longitude=" + lon + "&meters=" + radiusMeters;
+
+        // FIXED: Appended &station_category query matching your backend routing expectations
+        String url = apiUrl + "/public/api/station-fuel/nearby-station?latitude=" + lat
+                + "&longitude=" + lon
+                + "&meters=" + radiusMeters
+                + "&station_category=" + selectedCategory;
 
         Request request = new Request.Builder().url(url).addHeader("Accept", "application/json").build();
         client.newCall(request).enqueue(new Callback() {
@@ -181,9 +198,9 @@ public class MapFragment extends Fragment {
                 } else {
                     if (isAdded()) {
                         requireActivity().runOnUiThread(() -> {
-                            Toast.makeText(requireContext(), "Stations: " + response.message(), Toast.LENGTH_SHORT).show();
+                            Toast.makeText(requireContext(), "Stations Error: " + response.message(), Toast.LENGTH_SHORT).show();
                         });
-                        Log.e("MapFragment", "Stations: " + response);
+                        Log.e("MapFragment", "Stations Error response: " + response);
                     }
                 }
             }
@@ -193,17 +210,11 @@ public class MapFragment extends Fragment {
     private void displayMarkers(JSONArray stations) {
         if (getContext() == null || map == null) return;
 
-        // 1. Clear existing markers so they don't stack up when radius changes
         map.getOverlays().clear();
-
-        // 2. Re-add the user's location marker (optional, or re-fetch current loc)
-        // For brevity, we just focus on the station markers here.
 
         Drawable gasIcon = getResizedIcon(R.drawable.ic_gas_station, 100);
         SharedPreferences settings = requireActivity().getSharedPreferences("AppConfig", Context.MODE_PRIVATE);
         String apiBaseUrl = settings.getString("api_base_url", "https://qgas.site");
-
-        // Fix: Ensure the base image URL points correctly to storage
         String baseImgUrl = apiBaseUrl.replace("/api", "") + "/storage/app/public/";
 
         try {
@@ -229,13 +240,11 @@ public class MapFragment extends Fragment {
                 m.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
                 if (gasIcon != null) m.setIcon(gasIcon);
 
-                // Correct photo URL construction
                 final String finalPhotoUrl = baseImgUrl + photoPath;
 
                 m.setInfoWindow(new MarkerInfoWindow(R.layout.custom_info_window, map) {
                     @Override
                     public void onOpen(Object item) {
-                        // FIX: Use 'mView' (the InfoWindow layout), NOT 'getView()' (the Fragment layout)
                         TextView title = mView.findViewById(R.id.bubble_title);
                         TextView desc = mView.findViewById(R.id.bubble_description);
                         ImageView img = mView.findViewById(R.id.bubble_image);
@@ -258,18 +267,16 @@ public class MapFragment extends Fragment {
 
                 map.getOverlays().add(m);
             }
-            map.invalidate(); // Refresh map
+            map.invalidate();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    // Helper method to handle button action
     private void handleUpdateClick(JSONObject station) {
         try {
             String name = station.getString("station_name");
             Toast.makeText(requireContext(), "Opening update for: " + name, Toast.LENGTH_SHORT).show();
-            // Implement navigation to your Update Price Fragment/Activity here
             String stationData = station.toString();
             UpdatePriceFragment updateFragment = UpdatePriceFragment.newInstance(stationData);
             updateFragment.show(getChildFragmentManager(), "UpdatePriceBottomSheet");
@@ -285,15 +292,12 @@ public class MapFragment extends Fragment {
 
     private OkHttpClient getUnsafeOkHttpClient() {
         try {
-            // Create a trust manager that does not validate certificate chains
             final TrustManager[] trustAllCerts = new TrustManager[]{
                     new X509TrustManager() {
                         @Override
                         public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
-
                         @Override
                         public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {}
-
                         @Override
                         public java.security.cert.X509Certificate[] getAcceptedIssuers() {
                             return new java.security.cert.X509Certificate[]{};
@@ -301,11 +305,9 @@ public class MapFragment extends Fragment {
                     }
             };
 
-            // Install the all-trusting trust manager
             final SSLContext sslContext = SSLContext.getInstance("SSL");
             sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
 
-            // Create an ssl socket factory with our all-trusting manager
             return new OkHttpClient.Builder()
                     .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
                     .hostnameVerifier((hostname, session) -> true)

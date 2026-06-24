@@ -331,7 +331,8 @@ public class HomeFragment extends Fragment {
                     .addFormDataPart("date_captured", scan.getString("timestamp"))
                     .addFormDataPart("fuels", scan.getJSONArray("prices").toString())
                     .addFormDataPart("device_id", device_id)
-                    .addFormDataPart("municipality", scan.getString("municipality"));
+                    .addFormDataPart("municipality", scan.getString("municipality"))
+                    .addFormDataPart("station_category", scan.getString("station_category"));
 
             if (scan.has("gasImagePath")) {
                 String path = scan.getString("gasImagePath");

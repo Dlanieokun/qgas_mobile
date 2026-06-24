@@ -75,6 +75,24 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
     private static String muni = "";
 
     private Spinner spinnerStatus;
+
+    // Keep your existing fields and add these:
+    private LinearLayout lpgContainer, dieselContainer, gasContainer;
+    private TextView tvDiesel, tvGas, tvLpg;
+    private Button btnAddLpg;
+    private final List<LpgEntry> lpgEntries = new ArrayList<>();
+
+    // Track dynamic LPG elements
+    private static class LpgEntry {
+        EditText etName;
+        EditText etPrice;
+        View rowView; // Useful if you want to add a delete option later
+        LpgEntry(EditText name, EditText price, View row) {
+            this.etName = name;
+            this.etPrice = price;
+            this.rowView = row;
+        }
+    }
     private static class FuelEntry {
         EditText name;
         EditText input;
@@ -144,6 +162,11 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
         etDieselStd = v.findViewById(R.id.edit_diesel_standard);
         etGasPrem = v.findViewById(R.id.edit_gas_premium);
         etGasStd = v.findViewById(R.id.edit_gas_standard);
+        tvDiesel = v.findViewById(R.id.edit_diesel);
+        tvGas = v.findViewById(R.id.edit_gasoline);
+        dieselContainer = v.findViewById(R.id.edit_diesel_container);
+        gasContainer = v.findViewById(R.id.edit_gasoline_container);
+        tvLpg = v.findViewById(R.id.edit_lpg);
 
         spinnerStatus = v.findViewById(R.id.spinner_station_status);
 
@@ -153,6 +176,11 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
         spinnerStatus.setAdapter(adapter);
 
         spinnerStatus.setSelection(0);
+
+        lpgContainer = v.findViewById(R.id.lpg_list_container);
+        btnAddLpg = v.findViewById(R.id.btn_add_lpg);
+
+        btnAddLpg.setOnClickListener(view -> addLpgRow("", "0.00"));
 
         try {
             JSONObject station = new JSONObject(stationJson);
@@ -201,11 +229,65 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
                 else if (name.equals("Diesel - Standard")) etDieselStd.setText(price);
                 else if (name.equals("Gasoline - Premium")) etGasPrem.setText(price);
                 else if (name.equals("Gasoline - Standard")) etGasStd.setText(price);
+                else {
+                    addLpgRow(name, price);
+                }
             }
+
+            if (station.getString("type").equals("1")){
+                dieselContainer.setVisibility(View.GONE);
+                gasContainer.setVisibility(View.GONE);
+                tvDiesel.setVisibility(View.GONE);
+                tvGas.setVisibility(View.GONE);
+            } else {
+                tvLpg.setVisibility(View.GONE);
+                btnAddLpg.setVisibility(View.GONE);
+                lpgContainer.setVisibility(View.GONE);
+            }
+
 
             btnSave.setOnClickListener(view -> uploadAll(pid));
         } catch (Exception e) { e.printStackTrace(); }
         return v;
+    }
+
+    private void addLpgRow(String defaultName, String defaultPrice) {
+        Context context = getContext();
+        if (context == null) return;
+
+        // Create container for the row
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        row.setWeightSum(2);
+        row.setPadding(0, 4, 0, 4);
+
+        // 1. Name Input
+        EditText etName = new EditText(context);
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+        nameParams.setMarginEnd(8);
+        etName.setLayoutParams(nameParams);
+        etName.setHint("e.g., LPG Brand");
+        etName.setText(defaultName);
+        etName.setTextSize(18);
+
+        // 2. Price Input
+        EditText etPrice = new EditText(context);
+        etPrice.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        etPrice.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        etPrice.setSelectAllOnFocus(true);
+        etPrice.setText(defaultPrice);
+        etPrice.setTextSize(18);
+
+        // Add inputs to row
+        row.addView(etName);
+        row.addView(etPrice);
+
+        // Append to parent UI list and tracking list
+        lpgContainer.addView(row);
+        lpgEntries.add(new LpgEntry(etName, etPrice, row));
     }
 
     private void addFuelInput(LinearLayout container, String name, Double price) {
@@ -447,7 +529,49 @@ public class UpdatePriceFragment extends BottomSheetDialogFragment {
             // Create a JSON object representing the task (matching HomeFragment style)
             JSONObject updateTask = new JSONObject();
             updateTask.put("pid", pid);
-            updateTask.put("fuels", updatedFuels.toString());
+            JSONObject station = new JSONObject(stationJson);
+            if (station.getString("type").equals("1")) {
+
+                JSONArray updatedLPG = new JSONArray();
+
+                // Assuming lpgEntries is a standard Java List/Collection
+                for (LpgEntry entry : lpgEntries) {
+                    String name = entry.etName.getText().toString().trim();
+                    String priceStr = entry.etPrice.getText().toString().trim();
+
+                    // Safely parse the price to Double to avoid NumberFormatException
+                    Double price = 0.0;
+                    if (!priceStr.isEmpty()) {
+                        try {
+                            price = Double.parseDouble(priceStr);
+                        } catch (NumberFormatException e) {
+                            e.printStackTrace(); // Handle bad input gracefully
+                        }
+                    }
+
+                    try {
+                        // Create a proper Java JSONObject
+                        JSONObject fuelObject = new JSONObject();
+                        fuelObject.put("name", name);
+                        fuelObject.put("price", price);
+
+                        // Add the object to your array
+                        updatedLPG.put(fuelObject);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                // Put the final JSON string or array into your updateTask object
+                try {
+                    updateTask.put("fuels", updatedLPG.toString());
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+            }else {
+                updateTask.put("fuels", updatedFuels.toString());
+            };
             updateTask.put("date_captured", currentTime);
             updateTask.put("device_id", device_id);
             updateTask.put("latitude", latit);
